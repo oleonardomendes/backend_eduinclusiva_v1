@@ -11,3 +11,4 @@ qdrant-client       # cliente Qdrant (opcional - se você usar Qdrant)
 sentence-transformers  # embeddings local fallback
 scikit-learn        # NearestNeighbors fallback
 numpy
+email-validator
