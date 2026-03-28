@@ -5,7 +5,7 @@ import json
 
 from app.database import get_session
 from app.schemas import PlanoGeradoIA, PlanoCreate, PlanoRead
-from app.services.rag_service import gerar_plano_adaptado
+from services.rag_service import gerar_plano_adaptado
 from app.crud import create_plano
 from app.models import Plano  # ✅ ajuste conforme seu models.py
 

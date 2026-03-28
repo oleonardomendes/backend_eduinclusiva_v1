@@ -2,8 +2,8 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Optional
 import os, shutil, uuid, logging
-from app.services.pdf_ingest import prepare_document_for_index
-from app.services.vector_store import get_vector_store
+from services.pdf_ingest import prepare_document_for_index
+from services.vector_store import get_vector_store
 
 # 🔧 Inicializa o router
 router = APIRouter(prefix="/pdf", tags=["Upload & Ingestão"])

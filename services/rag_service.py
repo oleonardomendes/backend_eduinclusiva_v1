@@ -3,7 +3,7 @@ import os
 import json
 import re
 from typing import Dict, Any, List
-from app.services.vector_store import get_vector_store
+from services.vector_store import get_vector_store
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
