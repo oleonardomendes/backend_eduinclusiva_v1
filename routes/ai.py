@@ -77,10 +77,10 @@ async def gerar_plano_ia(
         )
 
 
-@router.get("/historico/{aluno_id}", response_model=List[PlanoRead])
+@router.get("/historico/{aluno_id}", response_model=list[PlanoRead])
 def listar_planos_gerados_por_aluno(
     aluno_id: int,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_session)
 ):
     """
     Retorna o histórico de planos (incluindo os gerados por IA)
