@@ -1,14 +1,29 @@
+# --- App / API
 fastapi
 uvicorn[standard]
 sqlmodel
 psycopg2-binary
 python-dotenv
 openai
-pymupdf             # fitz (extrair texto de PDFs)
-pytesseract         # OCR fallback (requer tesseract instalado no SO)
-Pillow              # imagens para OCR
-qdrant-client       # cliente Qdrant (opcional - se você usar Qdrant)
-sentence-transformers  # embeddings local fallback
-scikit-learn        # NearestNeighbors fallback
+
+# --- PDF / OCR
+pymupdf          # import fitz
+pytesseract      # requer tesseract instalado no SO (veja observação abaixo)
+Pillow
+
+# --- Vetores / IA
+qdrant-client
+sentence-transformers
+scikit-learn
 numpy
+
+# --- Validações / Auth / Upload
 email-validator
+PyJWT
+passlib[bcrypt]
+python-multipart
+
+# --- Torch (CPU-only) para evitar CUDA no Render
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.1.2+cpu
+``
