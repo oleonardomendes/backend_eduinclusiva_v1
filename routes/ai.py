@@ -78,7 +78,7 @@ async def gerar_plano_ia(
         raise HTTPException(status_code=500, detail=f"Erro interno ao gerar plano: {str(e)}")
 
         @router.get("/historico/{aluno_id}", response_model=list[PlanoRead])
-def listar_planos_gerados_por_aluno(aluno_id: int, session: Session = Depends(get_session)):
+        def listar_planos_gerados_por_aluno(aluno_id: int, session: Session = Depends(get_session)):
     """
     Retorna o histórico de planos (incluindo os gerados por IA)
     vinculados a um aluno específico.
