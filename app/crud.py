@@ -7,25 +7,27 @@ import logging
 
 logger = logging.getLogger("uvicorn")
 
+
 # =========================================================
 # 🧩 CRUD DE ALUNOS
 # =========================================================
 
-def get_alunos(session: Session) -> List[Aluno]:
+def get_alunos(session: Session, professor_id: Optional[int] = None) -> List[Aluno]:
     """
-    Retorna todos os alunos cadastrados.
+    Retorna alunos. Se professor_id for informado, filtra apenas os alunos desse professor.
+    Secretários e coordenadores podem chamar sem professor_id para ver todos.
     """
     try:
-        return session.exec(select(Aluno)).all()
+        query = select(Aluno)
+        if professor_id is not None:
+            query = query.where(Aluno.professor_id == professor_id)
+        return session.exec(query).all()
     except SQLAlchemyError as e:
         logger.error(f"Erro ao buscar alunos: {e}")
         raise
 
 
 def get_aluno_by_id(session: Session, aluno_id: int) -> Optional[Aluno]:
-    """
-    Busca um aluno pelo ID.
-    """
     try:
         return session.get(Aluno, aluno_id)
     except SQLAlchemyError as e:
@@ -34,14 +36,11 @@ def get_aluno_by_id(session: Session, aluno_id: int) -> Optional[Aluno]:
 
 
 def create_aluno(session: Session, aluno: Aluno) -> Aluno:
-    """
-    Cria um novo aluno no banco de dados.
-    """
     try:
         session.add(aluno)
         session.commit()
         session.refresh(aluno)
-        logger.info(f"Aluno criado com sucesso: {aluno.nome} (ID: {aluno.id})")
+        logger.info(f"Aluno criado: {aluno.nome} (ID: {aluno.id}, professor_id: {aluno.professor_id})")
         return aluno
     except SQLAlchemyError as e:
         session.rollback()
@@ -50,9 +49,6 @@ def create_aluno(session: Session, aluno: Aluno) -> Aluno:
 
 
 def update_aluno(session: Session, aluno_id: int, updates: dict) -> Optional[Aluno]:
-    """
-    Atualiza informações de um aluno existente.
-    """
     aluno = session.get(Aluno, aluno_id)
     if not aluno:
         return None
@@ -74,9 +70,6 @@ def update_aluno(session: Session, aluno_id: int, updates: dict) -> Optional[Alu
 
 
 def delete_aluno(session: Session, aluno_id: int) -> bool:
-    """
-    Remove um aluno pelo ID.
-    """
     aluno = session.get(Aluno, aluno_id)
     if not aluno:
         return False
@@ -97,9 +90,6 @@ def delete_aluno(session: Session, aluno_id: int) -> bool:
 # =========================================================
 
 def get_planos_by_aluno(session: Session, aluno_id: int) -> List[Plano]:
-    """
-    Retorna todos os planos de ensino de um aluno específico.
-    """
     try:
         return session.exec(select(Plano).where(Plano.aluno_id == aluno_id)).all()
     except SQLAlchemyError as e:
@@ -108,9 +98,6 @@ def get_planos_by_aluno(session: Session, aluno_id: int) -> List[Plano]:
 
 
 def get_plano_by_id(session: Session, plano_id: int) -> Optional[Plano]:
-    """
-    Retorna um plano de ensino pelo ID.
-    """
     try:
         return session.get(Plano, plano_id)
     except SQLAlchemyError as e:
@@ -119,14 +106,11 @@ def get_plano_by_id(session: Session, plano_id: int) -> Optional[Plano]:
 
 
 def create_plano(session: Session, plano: Plano) -> Plano:
-    """
-    Cria um novo plano de ensino adaptado.
-    """
     try:
         session.add(plano)
         session.commit()
         session.refresh(plano)
-        logger.info(f"Plano criado com sucesso: {plano.titulo} (ID: {plano.id})")
+        logger.info(f"Plano criado: {plano.titulo} (ID: {plano.id})")
         return plano
     except SQLAlchemyError as e:
         session.rollback()
@@ -135,9 +119,6 @@ def create_plano(session: Session, plano: Plano) -> Plano:
 
 
 def update_plano(session: Session, plano_id: int, updates: dict) -> Optional[Plano]:
-    """
-    Atualiza campos de um plano existente.
-    """
     plano = session.get(Plano, plano_id)
     if not plano:
         return None
@@ -159,9 +140,6 @@ def update_plano(session: Session, plano_id: int, updates: dict) -> Optional[Pla
 
 
 def delete_plano(session: Session, plano_id: int) -> bool:
-    """
-    Remove um plano do banco de dados.
-    """
     plano = session.get(Plano, plano_id)
     if not plano:
         return False
