@@ -26,3 +26,8 @@ python-multipart
 # --- Torch (CPU-only) para evitar CUDA no Render
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.1.2+cpu
+
+
+# Autenticação (pinnar versões compatíveis)
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
