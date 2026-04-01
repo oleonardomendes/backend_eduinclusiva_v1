@@ -42,6 +42,15 @@ class AlunoBase(SQLModel):
     contato_emergencia_parentesco: Optional[str] = None  # "Mãe", "Pai", "Avó", etc
     informacoes_medicas: Optional[str] = None            # JSON string: diagnóstico, alergias, medicamentos
 
+    # Perfil pedagógico e saúde
+    nivel_aprendizado: Optional[str] = None              # "Básico", "Intermediário", "Avançado"
+    objetivos_aprendizado: Optional[str] = None
+    alergias: Optional[str] = None
+    medicamentos: Optional[str] = None
+    endereco: Optional[str] = None
+    horario_aulas: Optional[str] = None                  # ex: "Manhã (7h-12h)"
+    progresso_geral: Optional[int] = None                # 0 a 100
+
 
 class Aluno(AlunoBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

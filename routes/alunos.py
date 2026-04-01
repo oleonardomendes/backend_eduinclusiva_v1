@@ -6,7 +6,7 @@ from typing import List, Optional
 from app.models import Aluno, Usuario
 from app.database import get_session
 from app import crud
-from app.schemas import AlunoUpdate
+from app.schemas import AlunoUpdate, AlunoComProfessor, AlunoMetricas
 from routes.auth import get_current_user  # reutiliza o guard de auth
 
 router = APIRouter()
@@ -41,9 +41,9 @@ def listar_alunos(
 
 
 # =========================================================
-# 🔍 Buscar aluno por ID
+# 🔍 Buscar aluno por ID (com nome do professor)
 # =========================================================
-@router.get("/{aluno_id}", response_model=Aluno, summary="Buscar aluno por ID")
+@router.get("/{aluno_id}", response_model=AlunoComProfessor, summary="Buscar aluno por ID")
 def buscar_aluno(
     aluno_id: int,
     session: Session = Depends(get_session),
@@ -54,7 +54,42 @@ def buscar_aluno(
         raise HTTPException(status_code=404, detail="Aluno não encontrado.")
     if not _pode_ver_aluno(current_user, aluno):
         raise HTTPException(status_code=403, detail="Acesso negado a este aluno.")
-    return aluno
+
+    professor_nome = None
+    if aluno.professor_id:
+        professor = session.get(Usuario, aluno.professor_id)
+        if professor:
+            professor_nome = professor.nome
+
+    return AlunoComProfessor(**aluno.model_dump(), professor_nome=professor_nome)
+
+
+# =========================================================
+# 📊 Métricas do aluno
+# =========================================================
+@router.get("/{aluno_id}/metricas", response_model=AlunoMetricas, summary="Métricas do aluno")
+def metricas_aluno(
+    aluno_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    aluno = crud.get_aluno_by_id(session, aluno_id)
+    if not aluno:
+        raise HTTPException(status_code=404, detail="Aluno não encontrado.")
+    if not _pode_ver_aluno(current_user, aluno):
+        raise HTTPException(status_code=403, detail="Acesso negado a este aluno.")
+
+    planos = crud.get_planos_by_aluno(session, aluno_id)
+    ultima_avaliacao = None
+    if planos:
+        ultima_avaliacao = max(p.criado_em for p in planos).date()
+
+    return AlunoMetricas(
+        progresso_geral=aluno.progresso_geral,
+        nivel_aprendizado=aluno.nivel_aprendizado,
+        ultima_avaliacao=ultima_avaliacao,
+        total_planos=len(planos),
+    )
 
 
 # =========================================================

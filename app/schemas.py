@@ -44,6 +44,13 @@ class AlunoBase(BaseModel):
     contato_emergencia_telefone: Optional[str] = None
     contato_emergencia_parentesco: Optional[str] = None
     informacoes_medicas: Optional[str] = None
+    nivel_aprendizado: Optional[str] = None
+    objetivos_aprendizado: Optional[str] = None
+    alergias: Optional[str] = None
+    medicamentos: Optional[str] = None
+    endereco: Optional[str] = None
+    horario_aulas: Optional[str] = None
+    progresso_geral: Optional[int] = None
 
 
 class AlunoCreate(AlunoBase):
@@ -66,14 +73,33 @@ class AlunoUpdate(BaseModel):
     contato_emergencia_telefone: Optional[str] = None
     contato_emergencia_parentesco: Optional[str] = None
     informacoes_medicas: Optional[str] = None
+    nivel_aprendizado: Optional[str] = None
+    objetivos_aprendizado: Optional[str] = None
+    alergias: Optional[str] = None
+    medicamentos: Optional[str] = None
+    endereco: Optional[str] = None
+    horario_aulas: Optional[str] = None
+    progresso_geral: Optional[int] = None
 
 
 class AlunoRead(AlunoBase):
     id: int
+    professor_id: Optional[int] = None
     criado_em: datetime
 
     class Config:
         orm_mode = True
+
+
+class AlunoComProfessor(AlunoRead):
+    professor_nome: Optional[str] = None
+
+
+class AlunoMetricas(BaseModel):
+    progresso_geral: Optional[int]
+    nivel_aprendizado: Optional[str]
+    ultima_avaliacao: Optional[date]
+    total_planos: int
 
 
 # =========================================================
