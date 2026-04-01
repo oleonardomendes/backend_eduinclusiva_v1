@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db
-from routes import alunos, planos, ai, auth, ingest
+from routes import alunos, planos, ai, auth, ingest, metas, avaliacoes
 import logging
 import os
 
@@ -87,7 +87,9 @@ app.include_router(alunos.router, prefix="/v1/alunos", tags=["Alunos"])
 app.include_router(planos.router, prefix="/v1/planos", tags=["Planos Adaptados"])
 app.include_router(ai.router,     prefix="/v1/ai", tags=["Inteligência Artificial"])
 # Para o ingest, mantemos prefix="/v1" para resultar, por ex., em /v1/pdf/ingest (conforme sua rota)
-app.include_router(ingest.router, prefix="/v1", tags=["Documentos e Ingestão"])
+app.include_router(ingest.router,     prefix="/v1",             tags=["Documentos e Ingestão"])
+app.include_router(metas.router,      prefix="/v1/metas",       tags=["Metas"])
+app.include_router(avaliacoes.router, prefix="/v1/avaliacoes",  tags=["Avaliações"])
 
 # 🏥 Healthcheck (útil para Render)
 @app.get("/healthz", tags=["Status"])

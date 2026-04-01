@@ -84,6 +84,35 @@ class Plano(PlanoBase, table=True):
 
 
 # =========================================================
+# 🎯 Meta Bimestral
+# =========================================================
+class Meta(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    professor_id: int = Field(foreign_key="usuario.id", index=True)
+    sala: Optional[str] = None          # nome da sala/turma
+    bimestre: int                        # 1, 2, 3 ou 4
+    ano: int                             # ex: 2026
+    meta_progresso: int                  # 0 a 100 (% esperado ao final do bimestre)
+    descricao: Optional[str] = None      # observações sobre a meta
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
+# 📝 Avaliação de Aluno
+# =========================================================
+class Avaliacao(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    aluno_id: int = Field(foreign_key="aluno.id", index=True)
+    professor_id: int = Field(foreign_key="usuario.id", index=True)
+    bimestre: int                        # 1, 2, 3 ou 4
+    ano: int                             # ex: 2026
+    nota: float                          # 0.0 a 10.0
+    progresso: Optional[int] = None      # 0 a 100 (% de desenvolvimento)
+    observacoes: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):
