@@ -6,6 +6,7 @@ from typing import List, Optional
 from app.models import Aluno, Usuario
 from app.database import get_session
 from app import crud
+from app.schemas import AlunoUpdate
 from routes.auth import get_current_user  # reutiliza o guard de auth
 
 router = APIRouter()
@@ -86,7 +87,7 @@ def criar_aluno(
 @router.put("/{aluno_id}", response_model=Aluno, summary="Atualizar aluno")
 def atualizar_aluno(
     aluno_id: int,
-    updates: dict,
+    updates: AlunoUpdate,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -96,7 +97,7 @@ def atualizar_aluno(
     if not _pode_ver_aluno(current_user, aluno):
         raise HTTPException(status_code=403, detail="Acesso negado a este aluno.")
 
-    atualizado = crud.update_aluno(session, aluno_id, updates)
+    atualizado = crud.update_aluno(session, aluno_id, updates.model_dump(exclude_unset=True))
     return atualizado
 
 

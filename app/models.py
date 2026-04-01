@@ -1,7 +1,7 @@
 # app/models.py
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
-from datetime import datetime
+from datetime import datetime, date
 import json
 
 
@@ -30,6 +30,17 @@ class AlunoBase(SQLModel):
     observacoes: Optional[str] = None
     escola: Optional[str] = None   # nome da escola
     sala: Optional[str] = None     # ex: "Sala A - 1º ano"
+
+    # Perfil completo
+    foto: Optional[str] = None                          # URL da foto
+    matricula: Optional[str] = None                     # número de matrícula
+    data_nascimento: Optional[date] = None
+    genero: Optional[str] = None                        # "Masculino", "Feminino", "Outro"
+    telefone_contato: Optional[str] = None
+    contato_emergencia_nome: Optional[str] = None
+    contato_emergencia_telefone: Optional[str] = None
+    contato_emergencia_parentesco: Optional[str] = None  # "Mãe", "Pai", "Avó", etc
+    informacoes_medicas: Optional[str] = None            # JSON string: diagnóstico, alergias, medicamentos
 
 
 class Aluno(AlunoBase, table=True):

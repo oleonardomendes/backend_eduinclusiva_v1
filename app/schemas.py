@@ -1,6 +1,6 @@
 # app/schemas.py
 from typing import Optional, List, Any
-from datetime import datetime
+from datetime import datetime, date
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -33,6 +33,17 @@ class AlunoBase(BaseModel):
     idade: Optional[int] = None
     necessidade: Optional[str] = None
     observacoes: Optional[str] = None
+    escola: Optional[str] = None
+    sala: Optional[str] = None
+    foto: Optional[str] = None
+    matricula: Optional[str] = None
+    data_nascimento: Optional[date] = None
+    genero: Optional[str] = None
+    telefone_contato: Optional[str] = None
+    contato_emergencia_nome: Optional[str] = None
+    contato_emergencia_telefone: Optional[str] = None
+    contato_emergencia_parentesco: Optional[str] = None
+    informacoes_medicas: Optional[str] = None
 
 
 class AlunoCreate(AlunoBase):
@@ -44,6 +55,17 @@ class AlunoUpdate(BaseModel):
     idade: Optional[int] = None
     necessidade: Optional[str] = None
     observacoes: Optional[str] = None
+    escola: Optional[str] = None
+    sala: Optional[str] = None
+    foto: Optional[str] = None
+    matricula: Optional[str] = None
+    data_nascimento: Optional[date] = None
+    genero: Optional[str] = None
+    telefone_contato: Optional[str] = None
+    contato_emergencia_nome: Optional[str] = None
+    contato_emergencia_telefone: Optional[str] = None
+    contato_emergencia_parentesco: Optional[str] = None
+    informacoes_medicas: Optional[str] = None
 
 
 class AlunoRead(AlunoBase):
