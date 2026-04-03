@@ -142,7 +142,7 @@ Responda APENAS com JSON válido, sem markdown, sem texto extra:
         raise RuntimeError("GEMINI_API_KEY não configurada nas variáveis de ambiente.")
 
     genai.configure(api_key=api_key)
-    gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+    gemini_model = genai.GenerativeModel("gemini-2.0-flash")
 
     logger.info(f"Gerando atividade via Gemini para aluno {aluno_id} ({aluno.nome})")
     response = gemini_model.generate_content(prompt)
