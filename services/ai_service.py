@@ -1,11 +1,11 @@
-# services/gemini_service.py
+# services/ai_service.py
 import os
 import json
 import re
 import logging
 from datetime import datetime
 
-import google.generativeai as genai
+from groq import Groq
 from sqlmodel import Session, select
 
 from app.models import Aluno, Avaliacao, Meta, Plano
@@ -57,14 +57,14 @@ def _titulos_planos_recentes(session: Session, aluno_id: int) -> list[str]:
     return [p.titulo for p in planos]
 
 
-def _limpar_json_gemini(texto: str) -> str:
-    """Remove blocos ```json``` que o Gemini às vezes retorna."""
+def _limpar_json_resposta(texto: str) -> str:
+    """Remove blocos ```json``` que o modelo às vezes retorna."""
     return re.sub(r"```(?:json)?", "", texto).strip().rstrip("`").strip()
 
 
 def gerar_atividade_adaptada(aluno_id: int, professor_id: int, session: Session) -> dict:
     """
-    Gera uma atividade pedagógica adaptada via Gemini 1.5 Flash com
+    Gera uma atividade pedagógica adaptada via Groq (llama-3.3-70b-versatile) com
     contexto completo do aluno (perfil, avaliações, metas e planos recentes).
 
     Retorna um dict com os campos da atividade.
@@ -136,24 +136,28 @@ Responda APENAS com JSON válido, sem markdown, sem texto extra:
   "justificativa": "string"
 }}"""
 
-    # ── 8. Chamada ao Gemini ───────────────────────────────────────────────
-    api_key = os.getenv("GEMINI_API_KEY")
+    # ── 8. Chamada ao Groq ─────────────────────────────────────────────────
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY não configurada nas variáveis de ambiente.")
+        raise RuntimeError("GROQ_API_KEY não configurada nas variáveis de ambiente.")
 
-    genai.configure(api_key=api_key)
-    gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+    client = Groq(api_key=api_key)
 
-    logger.info(f"Gerando atividade via Gemini para aluno {aluno_id} ({aluno.nome})")
-    response = gemini_model.generate_content(prompt)
+    logger.info(f"Gerando atividade via Groq para aluno {aluno_id} ({aluno.nome})")
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+    )
+    texto = response.choices[0].message.content
 
     # ── 9. Parse do JSON ───────────────────────────────────────────────────
-    raw = _limpar_json_gemini(response.text)
+    raw = _limpar_json_resposta(texto)
     try:
         resultado = json.loads(raw)
     except json.JSONDecodeError as e:
-        logger.error(f"Falha ao parsear JSON do Gemini: {e}\nResposta bruta:\n{raw}")
-        raise ValueError(f"Gemini retornou resposta inválida (não é JSON): {e}") from e
+        logger.error(f"Falha ao parsear JSON do Groq: {e}\nResposta bruta:\n{raw}")
+        raise ValueError(f"Groq retornou resposta inválida (não é JSON): {e}") from e
 
     logger.info(f"Atividade gerada com sucesso: '{resultado.get('titulo')}'")
     return resultado

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from app.database import get_session
 from app.schemas import PlanoGeradoIA, PlanoCreate, PlanoRead
 from services.rag_service import gerar_plano_adaptado
-from services.gemini_service import gerar_atividade_adaptada
+from services.ai_service import gerar_atividade_adaptada
 from app.crud import create_plano
 from app.models import Plano, Aluno, AtividadeGerada
 from routes.auth import get_current_user
