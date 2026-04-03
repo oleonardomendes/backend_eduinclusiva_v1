@@ -113,6 +113,27 @@ class Avaliacao(SQLModel, table=True):
 
 
 # =========================================================
+# 🤖 Atividade Gerada por IA (Gemini)
+# =========================================================
+class AtividadeGerada(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    aluno_id: int = Field(foreign_key="aluno.id", index=True)
+    professor_id: int = Field(foreign_key="usuario.id", index=True)
+    titulo: str
+    objetivo: Optional[str] = None
+    duracao_minutos: Optional[int] = None
+    dificuldade: Optional[str] = None
+    materiais: Optional[str] = None          # JSON string (lista)
+    passo_a_passo: Optional[str] = None      # JSON string (lista)
+    adaptacoes: Optional[str] = None         # JSON string (lista)
+    criterios_avaliacao: Optional[str] = None  # JSON string (lista)
+    justificativa: Optional[str] = None
+    bimestre: Optional[int] = None
+    ano: Optional[int] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):
