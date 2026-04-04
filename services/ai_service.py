@@ -111,25 +111,72 @@ def _buscar_template(
 
 def _buscar_ia_reutilizavel(
     session: Session,
-    aluno_id: int,
-    necessidade: str | None,
-    nivel_dificuldade: str | None,
+    aluno: Aluno,
+    parametros: dict,
 ) -> dict | None:
-    query = (
+    """
+    Busca atividade reutilizável de OUTRO aluno com scoring de compatibilidade.
+    Só reutiliza se score >= 70.
+
+    Score máximo = 100:
+      +30  necessidade_atendida == aluno.necessidade
+      +25  grau_necessidade compatível (via parametros_professor da atividade)
+      +25  estilo_aprendizagem do aluno presente nas tags da atividade
+      +20  nivel_dificuldade compatível (só conta se foi informado nos parametros)
+    """
+    candidatas = session.exec(
         select(AtividadeGerada)
         .where(
             AtividadeGerada.reutilizavel == True,  # noqa: E712
-            AtividadeGerada.necessidade_atendida == necessidade,
-            AtividadeGerada.aluno_id != aluno_id,
+            AtividadeGerada.aluno_id != aluno.id,
         )
-    )
-    candidatas = session.exec(query).all()
+    ).all()
+
+    nivel_dificuldade = parametros.get("nivel_dificuldade")
+    melhor: AtividadeGerada | None = None
+    melhor_score = -1
 
     for a in candidatas:
-        if nivel_dificuldade and a.dificuldade and a.dificuldade != nivel_dificuldade:
-            continue
-        return a.model_dump()
+        score = 0
 
+        # +30 — necessidade atendida
+        if a.necessidade_atendida == aluno.necessidade:
+            score += 30
+
+        # +25 — grau da necessidade compatível (armazenado em parametros_professor)
+        grau_aluno = getattr(aluno, "grau_necessidade", None)
+        if grau_aluno and a.parametros_professor:
+            try:
+                params_orig = json.loads(a.parametros_professor)
+                if params_orig.get("grau_necessidade") == grau_aluno:
+                    score += 25
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # +25 — estilo de aprendizagem presente nas tags da atividade
+        estilo_aluno = getattr(aluno, "estilo_aprendizagem", None)
+        if estilo_aluno and a.tags:
+            try:
+                tags = json.loads(a.tags)
+                if estilo_aluno in tags:
+                    score += 25
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # +20 — nível de dificuldade compatível (só pontua se filtro foi informado)
+        if nivel_dificuldade and a.dificuldade == nivel_dificuldade:
+            score += 20
+
+        if score >= 70 and score > melhor_score:
+            melhor_score = score
+            melhor = a
+
+    if melhor:
+        logger.info(
+            f"Atividade reutilizável encontrada (score={melhor_score}): "
+            f"'{melhor.titulo}' (id={melhor.id})"
+        )
+        return melhor.model_dump()
     return None
 
 
@@ -180,6 +227,8 @@ PERFIL DO ALUNO:
 - Nível atual de aprendizado: {aluno.nivel_aprendizado}
 - Objetivos de aprendizado: {aluno.objetivos_aprendizado}
 - Progresso geral: {aluno.progresso_geral}%
+- Estilo de aprendizagem: {aluno.estilo_aprendizagem}
+- Grau da necessidade: {aluno.grau_necessidade}
 
 SITUAÇÃO PEDAGÓGICA ATUAL:
 - {bimestre}º bimestre de {ano}
@@ -211,6 +260,18 @@ Para instrucao_professor: explique como conduzir a atividade em sala usando mate
 Para instrucao_familia: explique como os pais podem fazer esta mesma atividade em casa usando objetos do dia a dia (colheres, botões, frutas, brinquedos, etc). Use linguagem simples e acessível.
 
 Para conteudo_atividade: descreva o exercício detalhadamente como se fosse uma folha de atividade. Inclua exemplos práticos e espaços para resposta descritos em texto (ex: "Escreva o resultado aqui: ___").
+
+Adapte a atividade considerando o estilo de aprendizagem do aluno:
+- Visual: use desenhos descritos em texto, cores, diagramas escritos
+- Auditivo: inclua músicas, rimas, repetição oral
+- Cinestésico: priorize movimento, manipulação de objetos, atividades práticas
+- Visual-Cinestésico: combine elementos visuais com atividades manuais
+- Misto: varie as abordagens
+
+Considere também o grau da necessidade:
+- Leve: adaptações mínimas, próximo ao currículo regular
+- Moderado: adaptações significativas, mais tempo, materiais concretos
+- Severo: adaptações extensas, foco em habilidades funcionais
 
 Responda APENAS com JSON válido, sem markdown, sem texto extra:
 {{
@@ -314,7 +375,7 @@ def buscar_ou_gerar_atividade(
         return {"fonte": "template", "atividade": template}
 
     # ── Camada 2: IA reutilizável ─────────────────────────────────────────
-    reutilizavel = _buscar_ia_reutilizavel(session, aluno_id, aluno.necessidade, nivel_dificuldade)
+    reutilizavel = _buscar_ia_reutilizavel(session, aluno, parametros)
     if reutilizavel:
         logger.info(f"Atividade IA reutilizada para aluno {aluno_id}")
         return {"fonte": "ia_reutilizada", "atividade": reutilizavel}

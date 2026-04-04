@@ -13,7 +13,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 # ── Carrega o .env ANTES de importar app.database ──────────────────────────
-# app/database.py lê DATABASE_URL no momento do import via os.getenv()
 try:
     from dotenv import load_dotenv
     load_dotenv(ROOT / ".env")
@@ -25,12 +24,12 @@ from sqlmodel import Session, select
 from passlib.context import CryptContext
 
 from app.database import engine, init_db
-from app.models import Usuario, Aluno, Avaliacao, Meta
+from app.models import Usuario, Aluno, Avaliacao, Meta, Plano
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ── Contadores globais para o resumo ────────────────────────────────────────
-stats = {"criados": 0, "pulados": 0}
+stats = {"criados": 0, "pulados": 0, "atualizados": 0}
 
 
 def _ok(msg: str):
@@ -41,6 +40,11 @@ def _ok(msg: str):
 def _skip(msg: str):
     print(f"  ⚠️  Já existe, pulando: {msg}")
     stats["pulados"] += 1
+
+
+def _upd(msg: str):
+    print(f"  🔄 Atualizado: {msg}")
+    stats["atualizados"] += 1
 
 
 # ============================================================
@@ -102,6 +106,8 @@ ALUNOS_DATA = [
         endereco="Rua das Flores, 123 - Jardim Esperança - São Paulo/SP",
         horario_aulas="Manhã (7h-12h)",
         progresso_geral=45,
+        estilo_aprendizagem="Visual-Cinestésico",
+        grau_necessidade="Leve",
     ),
     dict(
         nome="Ana Clara Santos",
@@ -132,6 +138,8 @@ ALUNOS_DATA = [
         endereco="Av. Brasil, 456 - Vila Nova - São Paulo/SP",
         horario_aulas="Manhã (7h-12h)",
         progresso_geral=62,
+        estilo_aprendizagem="Visual",
+        grau_necessidade="Moderado",
     ),
     dict(
         nome="Lucas Gabriel Oliveira",
@@ -162,13 +170,15 @@ ALUNOS_DATA = [
         endereco="Rua das Palmeiras, 789 - Centro - São Paulo/SP",
         horario_aulas="Tarde (13h-18h)",
         progresso_geral=58,
+        estilo_aprendizagem="Cinestésico",
+        grau_necessidade="Moderado",
     ),
 ]
 
 
 def seed_alunos(session: Session, professor_id: int) -> list[Aluno]:
     print("\n👦 Alunos")
-    alunos_criados = []
+    alunos_resultado = []
 
     for dados in ALUNOS_DATA:
         existing = session.exec(
@@ -176,8 +186,20 @@ def seed_alunos(session: Session, professor_id: int) -> list[Aluno]:
         ).first()
 
         if existing:
-            _skip(dados["nome"])
-            alunos_criados.append(existing)
+            # Atualiza os novos campos de perfil nos alunos já existentes
+            alterado = False
+            for campo in ("estilo_aprendizagem", "grau_necessidade"):
+                if getattr(existing, campo) != dados[campo]:
+                    setattr(existing, campo, dados[campo])
+                    alterado = True
+            if alterado:
+                session.add(existing)
+                session.commit()
+                session.refresh(existing)
+                _upd(f"{dados['nome']} — estilo/grau atualizados")
+            else:
+                _skip(dados["nome"])
+            alunos_resultado.append(existing)
             continue
 
         aluno = Aluno(**dados, professor_id=professor_id)
@@ -185,9 +207,9 @@ def seed_alunos(session: Session, professor_id: int) -> list[Aluno]:
         session.commit()
         session.refresh(aluno)
         _ok(f"Aluno {aluno.nome} criado (id={aluno.id})")
-        alunos_criados.append(aluno)
+        alunos_resultado.append(aluno)
 
-    return alunos_criados
+    return alunos_resultado
 
 
 # ============================================================
@@ -205,7 +227,6 @@ AVALIACOES_DATA = [
     dict(bimestre=2, ano=2026, nota=6.5, progresso=58, observacoes="Melhora na organização das tarefas"),
 ]
 
-# Mapeamento: índice_aluno → [índice_avaliação, ...]
 _ALUNO_AVALS = {0: [0, 1], 1: [2, 3], 2: [4, 5]}
 
 
@@ -229,11 +250,7 @@ def seed_avaliacoes(session: Session, alunos: list[Aluno], professor_id: int):
                 _skip(label)
                 continue
 
-            avaliacao = Avaliacao(
-                aluno_id=aluno.id,
-                professor_id=professor_id,
-                **dados,
-            )
+            avaliacao = Avaliacao(aluno_id=aluno.id, professor_id=professor_id, **dados)
             session.add(avaliacao)
             session.commit()
             _ok(f"Avaliação criada: {label}")
@@ -279,6 +296,94 @@ def seed_metas(session: Session, professor_id: int):
 
 
 # ============================================================
+# PLANOS (histórico)
+# ============================================================
+# índice_aluno → lista de (titulo, atividades_json, recomendacoes_json)
+PLANOS_DATA: dict[int, list[dict]] = {
+    0: [  # João Pedro Silva
+        dict(
+            titulo="Reconhecimento de Formas Geométricas",
+            atividades='[{"tipo": "Visual", "descricao": "Identificar formas usando cartões coloridos", "duracao": 20}]',
+            recomendacoes='["Usar cartões grandes e coloridos", "Repetir com diferentes cores"]',
+        ),
+        dict(
+            titulo="Sequência Numérica com Objetos",
+            atividades='[{"tipo": "Cinestésico", "descricao": "Ordenar tampinhas em sequência de 1 a 5", "duracao": 25}]',
+            recomendacoes='["Usar objetos que o aluno goste", "Fazer pausas a cada 10 minutos"]',
+        ),
+        dict(
+            titulo="Leitura de Palavras com Imagens",
+            atividades='[{"tipo": "Visual", "descricao": "Associar palavra escrita à imagem correspondente", "duracao": 15}]',
+            recomendacoes='["Usar imagens grandes e coloridas", "Começar com palavras curtas"]',
+        ),
+    ],
+    1: [  # Ana Clara Santos
+        dict(
+            titulo="Leitura com Apoio Fonético",
+            atividades='[{"tipo": "Auditivo", "descricao": "Identificar sons iniciais de palavras", "duracao": 20}]',
+            recomendacoes='["Falar devagar e claramente", "Usar palavras do cotidiano"]',
+        ),
+        dict(
+            titulo="Escrita com Letras Móveis",
+            atividades='[{"tipo": "Cinestésico", "descricao": "Montar palavras simples com letras móveis", "duracao": 25}]',
+            recomendacoes='["Letras grandes e coloridas", "Começar com o nome do aluno"]',
+        ),
+        dict(
+            titulo="Identificação de Letras B e D",
+            atividades='[{"tipo": "Visual", "descricao": "Diferenciar as letras b e d com apoio visual", "duracao": 20}]',
+            recomendacoes='["Usar mnemônico visual: b=barriga para frente, d=barriga para trás"]',
+        ),
+    ],
+    2: [  # Lucas Gabriel Oliveira
+        dict(
+            titulo="Matemática em Movimento",
+            atividades='[{"tipo": "Cinestésico", "descricao": "Pular em números desenhados no chão", "duracao": 15}]',
+            recomendacoes='["Atividades curtas de 10-15 min", "Intercalar com pausas"]',
+        ),
+        dict(
+            titulo="Organização com Cores",
+            atividades='[{"tipo": "Visual", "descricao": "Separar materiais por cor e categoria", "duracao": 10}]',
+            recomendacoes='["Usar caixas coloridas", "Criar rotina visual com imagens"]',
+        ),
+        dict(
+            titulo="Contagem com Movimento",
+            atividades='[{"tipo": "Cinestésico", "descricao": "Contar batendo palmas ou saltando", "duracao": 15}]',
+            recomendacoes='["Atividades de no máximo 15 min", "Recompensa ao completar"]',
+        ),
+    ],
+}
+
+
+def seed_planos(session: Session, alunos: list[Aluno]):
+    print("\n📘 Planos (histórico)")
+
+    for aluno_idx, planos in PLANOS_DATA.items():
+        aluno = alunos[aluno_idx]
+        for dados in planos:
+            existing = session.exec(
+                select(Plano).where(
+                    Plano.aluno_id == aluno.id,
+                    Plano.titulo == dados["titulo"],
+                )
+            ).first()
+
+            label = f"{aluno.nome} — {dados['titulo']}"
+            if existing:
+                _skip(label)
+                continue
+
+            plano = Plano(
+                aluno_id=aluno.id,
+                titulo=dados["titulo"],
+                atividades=dados["atividades"],
+                recomendacoes=dados["recomendacoes"],
+            )
+            session.add(plano)
+            session.commit()
+            _ok(f"Plano criado: {label}")
+
+
+# ============================================================
 # ENTRY POINT
 # ============================================================
 def seed():
@@ -295,13 +400,15 @@ def seed():
         alunos = seed_alunos(session, professor.id)
         seed_avaliacoes(session, alunos, professor.id)
         seed_metas(session, professor.id)
+        seed_planos(session, alunos)
 
     print("\n" + "=" * 55)
     print("  📊  Resumo")
     print("=" * 55)
-    print(f"  ✅  Criados : {stats['criados']}")
-    print(f"  ⚠️   Pulados : {stats['pulados']}")
-    print(f"  📦  Total   : {stats['criados'] + stats['pulados']}")
+    print(f"  ✅  Criados    : {stats['criados']}")
+    print(f"  🔄  Atualizados: {stats['atualizados']}")
+    print(f"  ⚠️   Pulados    : {stats['pulados']}")
+    print(f"  📦  Total      : {stats['criados'] + stats['atualizados'] + stats['pulados']}")
     print("=" * 55)
     print("  ✔️   Seed concluído com sucesso!")
     print("=" * 55)

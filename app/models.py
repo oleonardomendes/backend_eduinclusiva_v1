@@ -50,6 +50,8 @@ class AlunoBase(SQLModel):
     endereco: Optional[str] = None
     horario_aulas: Optional[str] = None                  # ex: "Manhã (7h-12h)"
     progresso_geral: Optional[int] = None                # 0 a 100
+    estilo_aprendizagem: Optional[str] = None            # "Visual", "Auditivo", "Cinestésico", "Visual-Cinestésico", "Misto"
+    grau_necessidade: Optional[str] = None               # "Leve", "Moderado", "Severo"
 
 
 class Aluno(AlunoBase, table=True):
