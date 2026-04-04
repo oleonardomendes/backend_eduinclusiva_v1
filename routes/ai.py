@@ -1,6 +1,7 @@
+# routes/ai.py
 from fastapi import APIRouter, HTTPException, Depends
 from sqlmodel import Session, select
-from typing import Dict, List
+from typing import Dict, List, Optional
 from datetime import datetime
 import json
 
@@ -9,15 +10,19 @@ from pydantic import BaseModel
 from app.database import get_session
 from app.schemas import PlanoGeradoIA, PlanoCreate, PlanoRead
 from services.rag_service import gerar_plano_adaptado
-from services.ai_service import gerar_atividade_adaptada
+from services.ai_service import buscar_ou_gerar_atividade
 from app.crud import create_plano
-from app.models import Plano, Aluno, AtividadeGerada
+from app.models import Plano, Aluno, AtividadeGerada, AtividadeTemplate
 from routes.auth import get_current_user
 
 router = APIRouter()
 
 ROLES_GESTAO = {"secretary", "secretaria", "coordinator", "coordenadora", "admin", "gestor"}
 
+
+# =========================================================
+# Helpers
+# =========================================================
 
 def _pode_ver_aluno(current_user, aluno: Aluno) -> bool:
     papel = (current_user.papel or "").lower()
@@ -27,21 +32,65 @@ def _pode_ver_aluno(current_user, aluno: Aluno) -> bool:
 
 
 def _desserializar_atividade(atividade: AtividadeGerada) -> dict:
-    """Converte campos JSON string para listas para o response."""
+    """Converte campos JSON string para listas/dict para o response."""
     d = atividade.model_dump()
-    for campo in ("materiais", "passo_a_passo", "adaptacoes", "criterios_avaliacao"):
+    # Campos lista
+    for campo in ("materiais", "passo_a_passo", "adaptacoes", "criterios_avaliacao", "tags"):
         valor = d.get(campo)
         if isinstance(valor, str):
             try:
                 d[campo] = json.loads(valor)
             except (json.JSONDecodeError, TypeError):
                 d[campo] = []
+    # Campos dict
+    for campo in ("parametros_professor",):
+        valor = d.get(campo)
+        if isinstance(valor, str):
+            try:
+                d[campo] = json.loads(valor)
+            except (json.JSONDecodeError, TypeError):
+                d[campo] = {}
     return d
 
 
+# =========================================================
+# Schemas
+# =========================================================
+
 class GerarAtividadeRequest(BaseModel):
     aluno_id: int
+    titulo: Optional[str] = None
+    disciplina: Optional[str] = None
+    tipo_atividade: Optional[str] = None
+    nivel_dificuldade: Optional[str] = None
+    duracao_minutos: Optional[int] = 30
+    descricao: Optional[str] = None
+    objetivos: Optional[str] = None
 
+
+class AtividadeTemplateCreate(BaseModel):
+    titulo: str
+    descricao: Optional[str] = None
+    disciplina: Optional[str] = None
+    tipo_atividade: Optional[str] = None
+    nivel_dificuldade: Optional[str] = None
+    nivel_aprendizado: Optional[str] = None
+    duracao_minutos: Optional[int] = None
+    necessidades_alvo: Optional[List[str]] = None
+    objetivo: Optional[str] = None
+    instrucao_professor: Optional[str] = None
+    instrucao_familia: Optional[str] = None
+    conteudo_atividade: Optional[str] = None
+    materiais: Optional[List[str]] = None
+    passo_a_passo: Optional[List[str]] = None
+    adaptacoes: Optional[List[str]] = None
+    criterios_avaliacao: Optional[List[str]] = None
+    tags: Optional[List[str]] = None
+
+
+# =========================================================
+# Planos (OpenAI / RAG — mantidos sem alteração)
+# =========================================================
 
 @router.post("/gerar_plano", response_model=PlanoGeradoIA)
 async def gerar_plano_ia(
@@ -154,9 +203,81 @@ def listar_planos_gerados_por_aluno(
 
 
 # =========================================================
-# 🤖 Gerar atividade adaptada via Gemini
+# Templates de atividade
 # =========================================================
-@router.post("/gerar_atividade", summary="Gerar atividade adaptada via Gemini")
+
+@router.get("/templates/", summary="Listar templates de atividade")
+def listar_templates(
+    necessidade: Optional[str] = None,
+    nivel: Optional[str] = None,
+    session: Session = Depends(get_session),
+    current_user=Depends(get_current_user),
+):
+    templates = session.exec(
+        select(AtividadeTemplate).where(AtividadeTemplate.ativo == True)  # noqa: E712
+    ).all()
+
+    resultado = []
+    for t in templates:
+        # Filtra por necessidade (campo é JSON list)
+        if necessidade and t.necessidades_alvo:
+            try:
+                nees = json.loads(t.necessidades_alvo)
+            except (json.JSONDecodeError, TypeError):
+                nees = []
+            if necessidade not in nees:
+                continue
+
+        # Filtra por nivel_dificuldade
+        if nivel and t.nivel_dificuldade and t.nivel_dificuldade != nivel:
+            continue
+
+        resultado.append(t.model_dump())
+
+    return resultado
+
+
+@router.post("/templates/", summary="Criar template de atividade")
+def criar_template(
+    body: AtividadeTemplateCreate,
+    session: Session = Depends(get_session),
+    current_user=Depends(get_current_user),
+):
+    def _ser(valor) -> Optional[str]:
+        if valor is None:
+            return None
+        return json.dumps(valor, ensure_ascii=False)
+
+    template = AtividadeTemplate(
+        titulo=body.titulo,
+        descricao=body.descricao,
+        disciplina=body.disciplina,
+        tipo_atividade=body.tipo_atividade,
+        nivel_dificuldade=body.nivel_dificuldade,
+        nivel_aprendizado=body.nivel_aprendizado,
+        duracao_minutos=body.duracao_minutos,
+        necessidades_alvo=_ser(body.necessidades_alvo),
+        objetivo=body.objetivo,
+        instrucao_professor=body.instrucao_professor,
+        instrucao_familia=body.instrucao_familia,
+        conteudo_atividade=body.conteudo_atividade,
+        materiais=_ser(body.materiais),
+        passo_a_passo=_ser(body.passo_a_passo),
+        adaptacoes=_ser(body.adaptacoes),
+        criterios_avaliacao=_ser(body.criterios_avaliacao),
+        tags=_ser(body.tags),
+    )
+    session.add(template)
+    session.commit()
+    session.refresh(template)
+    return template.model_dump()
+
+
+# =========================================================
+# Geração de atividade adaptada (Groq — 3 camadas)
+# =========================================================
+
+@router.post("/gerar_atividade", summary="Gerar atividade adaptada via IA (3 camadas)")
 def gerar_atividade(
     body: GerarAtividadeRequest,
     session: Session = Depends(get_session),
@@ -168,44 +289,58 @@ def gerar_atividade(
     if not _pode_ver_aluno(current_user, aluno):
         raise HTTPException(status_code=403, detail="Acesso negado a este aluno.")
 
+    parametros = {
+        "titulo": body.titulo,
+        "disciplina": body.disciplina,
+        "tipo_atividade": body.tipo_atividade,
+        "nivel_dificuldade": body.nivel_dificuldade,
+        "duracao_minutos": body.duracao_minutos,
+        "descricao": body.descricao,
+        "objetivos": body.objetivos,
+    }
+
     try:
-        atividade_dict = gerar_atividade_adaptada(body.aluno_id, current_user.id, session)
+        resultado = buscar_ou_gerar_atividade(
+            aluno_id=body.aluno_id,
+            professor_id=current_user.id,
+            parametros=parametros,
+            session=session,
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
-        print(f"Erro ao gerar atividade via Gemini: {e}")
+        print(f"Erro ao gerar atividade: {e}")
         raise HTTPException(status_code=500, detail="Erro interno ao gerar atividade.")
 
-    now = datetime.now()
-    bimestre = (now.month - 1) // 3 + 1
+    # resultado["atividade"] já é um dict (model_dump do AtividadeGerada ou Template)
+    atividade = resultado["atividade"]
 
-    atividade = AtividadeGerada(
-        aluno_id=body.aluno_id,
-        professor_id=current_user.id,
-        titulo=atividade_dict["titulo"],
-        objetivo=atividade_dict.get("objetivo"),
-        duracao_minutos=atividade_dict.get("duracao_minutos"),
-        dificuldade=atividade_dict.get("dificuldade"),
-        materiais=json.dumps(atividade_dict.get("materiais", []), ensure_ascii=False),
-        passo_a_passo=json.dumps(atividade_dict.get("passo_a_passo", []), ensure_ascii=False),
-        adaptacoes=json.dumps(atividade_dict.get("adaptacoes", []), ensure_ascii=False),
-        criterios_avaliacao=json.dumps(atividade_dict.get("criterios_avaliacao", []), ensure_ascii=False),
-        justificativa=atividade_dict.get("justificativa"),
-        bimestre=bimestre,
-        ano=now.year,
-    )
-    session.add(atividade)
-    session.commit()
-    session.refresh(atividade)
+    # Desserializar campos JSON lista/dict para o response
+    for campo in ("materiais", "passo_a_passo", "adaptacoes", "criterios_avaliacao", "tags"):
+        valor = atividade.get(campo)
+        if isinstance(valor, str):
+            try:
+                atividade[campo] = json.loads(valor)
+            except (json.JSONDecodeError, TypeError):
+                atividade[campo] = []
 
-    return _desserializar_atividade(atividade)
+    for campo in ("parametros_professor",):
+        valor = atividade.get(campo)
+        if isinstance(valor, str):
+            try:
+                atividade[campo] = json.loads(valor)
+            except (json.JSONDecodeError, TypeError):
+                atividade[campo] = {}
+
+    return {"fonte": resultado["fonte"], "atividade": atividade}
 
 
 # =========================================================
-# 📋 Histórico de atividades geradas por aluno
+# Histórico de atividades geradas por aluno
 # =========================================================
+
 @router.get("/atividades/{aluno_id}", summary="Listar atividades geradas para um aluno")
 def listar_atividades(
     aluno_id: int,

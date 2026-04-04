@@ -130,6 +130,41 @@ class AtividadeGerada(SQLModel, table=True):
     justificativa: Optional[str] = None
     bimestre: Optional[int] = None
     ano: Optional[int] = None
+    disciplina: Optional[str] = None
+    tipo_atividade: Optional[str] = None
+    instrucao_professor: Optional[str] = None
+    instrucao_familia: Optional[str] = None
+    conteudo_atividade: Optional[str] = None
+    tags: Optional[str] = None                  # JSON string (lista)
+    parametros_professor: Optional[str] = None  # JSON string com parâmetros extras
+    reutilizavel: bool = Field(default=True)
+    necessidade_atendida: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
+# 📚 Template de Atividade
+# =========================================================
+class AtividadeTemplate(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    titulo: str
+    descricao: Optional[str] = None
+    disciplina: Optional[str] = None
+    tipo_atividade: Optional[str] = None
+    nivel_dificuldade: Optional[str] = None
+    nivel_aprendizado: Optional[str] = None
+    duracao_minutos: Optional[int] = None
+    necessidades_alvo: Optional[str] = None    # JSON list de NEE compatíveis
+    objetivo: Optional[str] = None
+    instrucao_professor: Optional[str] = None
+    instrucao_familia: Optional[str] = None
+    conteudo_atividade: Optional[str] = None
+    materiais: Optional[str] = None            # JSON list
+    passo_a_passo: Optional[str] = None        # JSON list
+    adaptacoes: Optional[str] = None           # JSON list
+    criterios_avaliacao: Optional[str] = None  # JSON list
+    tags: Optional[str] = None                 # JSON list
+    ativo: bool = Field(default=True)
     criado_em: datetime = Field(default_factory=datetime.utcnow)
 
 
