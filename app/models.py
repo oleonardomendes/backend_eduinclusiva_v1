@@ -141,6 +141,8 @@ class AtividadeGerada(SQLModel, table=True):
     parametros_professor: Optional[str] = None  # JSON string com parâmetros extras
     reutilizavel: bool = Field(default=True)
     necessidade_atendida: Optional[str] = None
+    concluida: bool = Field(default=False)
+    concluida_em: Optional[datetime] = None
     criado_em: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -168,6 +170,35 @@ class AtividadeTemplate(SQLModel, table=True):
     tags: Optional[str] = None                 # JSON list
     ativo: bool = Field(default=True)
     criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
+# ✅ Conclusão de Atividade com avaliação por competências
+# =========================================================
+class ConclusaoAtividade(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    atividade_id: int = Field(foreign_key="atividadegerada.id", index=True)
+    aluno_id: int = Field(foreign_key="aluno.id", index=True)
+    professor_id: int = Field(foreign_key="usuario.id", index=True)
+
+    # Observação geral
+    observacoes: Optional[str] = None
+
+    # Notas por competência (0.0 a 10.0)
+    nota_comunicacao: Optional[float] = None
+    nota_coordenacao_motora: Optional[float] = None
+    nota_cognicao: Optional[float] = None
+    nota_socializacao: Optional[float] = None
+    nota_autonomia: Optional[float] = None
+    nota_linguagem: Optional[float] = None
+
+    # Nota geral calculada (média das competências preenchidas)
+    nota_geral: Optional[float] = None
+
+    # Quais competências foram trabalhadas nesta atividade
+    competencias_trabalhadas: Optional[str] = None  # JSON list
+
+    concluido_em: datetime = Field(default_factory=datetime.utcnow)
 
 
 # =========================================================

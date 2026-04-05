@@ -12,7 +12,7 @@ from app.schemas import PlanoGeradoIA, PlanoCreate, PlanoRead
 from services.rag_service import gerar_plano_adaptado
 from services.ai_service import buscar_ou_gerar_atividade
 from app.crud import create_plano
-from app.models import Plano, Aluno, AtividadeGerada, AtividadeTemplate
+from app.models import Plano, Aluno, AtividadeGerada, AtividadeTemplate, ConclusaoAtividade
 from routes.auth import get_current_user
 
 router = APIRouter()
@@ -66,6 +66,17 @@ class GerarAtividadeRequest(BaseModel):
     duracao_minutos: Optional[int] = 30
     descricao: Optional[str] = None
     objetivos: Optional[str] = None
+
+
+class ConcluirAtividadeRequest(BaseModel):
+    observacoes: Optional[str] = None
+    competencias_trabalhadas: Optional[list] = None
+    nota_comunicacao: Optional[float] = None
+    nota_coordenacao_motora: Optional[float] = None
+    nota_cognicao: Optional[float] = None
+    nota_socializacao: Optional[float] = None
+    nota_autonomia: Optional[float] = None
+    nota_linguagem: Optional[float] = None
 
 
 class AtividadeTemplateCreate(BaseModel):
@@ -338,6 +349,94 @@ def gerar_atividade(
 
 
 # =========================================================
+# Concluir atividade com avaliação por competências
+# =========================================================
+
+@router.patch("/atividades/{atividade_id}/concluir", summary="Concluir atividade e avaliar por competências")
+def concluir_atividade(
+    atividade_id: int,
+    body: ConcluirAtividadeRequest,
+    session: Session = Depends(get_session),
+    current_user=Depends(get_current_user),
+):
+    atividade = session.get(AtividadeGerada, atividade_id)
+    if not atividade:
+        raise HTTPException(status_code=404, detail="Atividade não encontrada.")
+
+    aluno = session.get(Aluno, atividade.aluno_id)
+    if not aluno or not _pode_ver_aluno(current_user, aluno):
+        raise HTTPException(status_code=403, detail="Acesso negado a esta atividade.")
+
+    # Calcula nota_geral como média das competências preenchidas
+    campos_nota = [
+        body.nota_comunicacao,
+        body.nota_coordenacao_motora,
+        body.nota_cognicao,
+        body.nota_socializacao,
+        body.nota_autonomia,
+        body.nota_linguagem,
+    ]
+    notas_preenchidas = [n for n in campos_nota if n is not None]
+    nota_geral = round(sum(notas_preenchidas) / len(notas_preenchidas), 2) if notas_preenchidas else None
+
+    # Cria o registro de conclusão
+    conclusao = ConclusaoAtividade(
+        atividade_id=atividade_id,
+        aluno_id=atividade.aluno_id,
+        professor_id=current_user.id,
+        observacoes=body.observacoes,
+        nota_comunicacao=body.nota_comunicacao,
+        nota_coordenacao_motora=body.nota_coordenacao_motora,
+        nota_cognicao=body.nota_cognicao,
+        nota_socializacao=body.nota_socializacao,
+        nota_autonomia=body.nota_autonomia,
+        nota_linguagem=body.nota_linguagem,
+        nota_geral=nota_geral,
+        competencias_trabalhadas=(
+            json.dumps(body.competencias_trabalhadas, ensure_ascii=False)
+            if body.competencias_trabalhadas else None
+        ),
+    )
+    session.add(conclusao)
+
+    # Marca a atividade como concluída
+    atividade.concluida = True
+    atividade.concluida_em = datetime.utcnow()
+    session.add(atividade)
+
+    # Atualiza progresso_geral do aluno
+    progresso_atual = aluno.progresso_geral or 0
+    if nota_geral is not None:
+        if nota_geral >= 7.0:
+            aluno.progresso_geral = min(100, progresso_atual + 5)
+        elif nota_geral >= 5.0:
+            aluno.progresso_geral = min(100, progresso_atual + 2)
+        # nota < 5.0 → não altera
+    else:
+        aluno.progresso_geral = min(100, progresso_atual + 1)
+    session.add(aluno)
+
+    session.commit()
+    session.refresh(conclusao)
+    session.refresh(atividade)
+    session.refresh(aluno)
+
+    # Desserializa competencias_trabalhadas para o response
+    conclusao_dict = conclusao.model_dump()
+    if isinstance(conclusao_dict.get("competencias_trabalhadas"), str):
+        try:
+            conclusao_dict["competencias_trabalhadas"] = json.loads(conclusao_dict["competencias_trabalhadas"])
+        except (json.JSONDecodeError, TypeError):
+            conclusao_dict["competencias_trabalhadas"] = []
+
+    return {
+        "conclusao": conclusao_dict,
+        "atividade": _desserializar_atividade(atividade),
+        "progresso_atualizado": aluno.progresso_geral,
+    }
+
+
+# =========================================================
 # Histórico de atividades geradas por aluno
 # =========================================================
 
@@ -360,3 +459,38 @@ def listar_atividades(
     ).all()
 
     return [_desserializar_atividade(a) for a in atividades]
+
+
+# =========================================================
+# Conclusões de atividades por aluno
+# =========================================================
+
+@router.get("/atividades/{aluno_id}/conclusoes", summary="Listar conclusões de atividades de um aluno")
+def listar_conclusoes(
+    aluno_id: int,
+    session: Session = Depends(get_session),
+    current_user=Depends(get_current_user),
+):
+    aluno = session.get(Aluno, aluno_id)
+    if not aluno:
+        raise HTTPException(status_code=404, detail="Aluno não encontrado.")
+    if not _pode_ver_aluno(current_user, aluno):
+        raise HTTPException(status_code=403, detail="Acesso negado a este aluno.")
+
+    conclusoes = session.exec(
+        select(ConclusaoAtividade)
+        .where(ConclusaoAtividade.aluno_id == aluno_id)
+        .order_by(ConclusaoAtividade.concluido_em.desc())  # type: ignore[attr-defined]
+    ).all()
+
+    resultado = []
+    for c in conclusoes:
+        d = c.model_dump()
+        if isinstance(d.get("competencias_trabalhadas"), str):
+            try:
+                d["competencias_trabalhadas"] = json.loads(d["competencias_trabalhadas"])
+            except (json.JSONDecodeError, TypeError):
+                d["competencias_trabalhadas"] = []
+        resultado.append(d)
+
+    return resultado
