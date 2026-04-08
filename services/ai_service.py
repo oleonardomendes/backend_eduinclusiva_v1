@@ -225,6 +225,9 @@ PERFIL DO ALUNO:
 - Necessidade especial: {aluno.necessidade}
 - Observações pedagógicas: {aluno.observacoes}
 - Nível atual de aprendizado: {aluno.nivel_aprendizado}
+- Série/Ano escolar: {aluno.sala or "não informado"}
+- Idade: {aluno.idade} anos
+- Referência curricular: a atividade deve ser compatível com o conteúdo esperado para o {aluno.sala or "ano escolar do aluno"}, adaptado para a necessidade especial do aluno.
 - Objetivos de aprendizado: {aluno.objetivos_aprendizado}
 - Progresso geral: {aluno.progresso_geral}%
 - Estilo de aprendizagem: {aluno.estilo_aprendizagem}
@@ -260,6 +263,8 @@ Para instrucao_professor: explique como conduzir a atividade em sala usando mate
 Para instrucao_familia: explique como os pais podem fazer esta mesma atividade em casa usando objetos do dia a dia (colheres, botões, frutas, brinquedos, etc). Use linguagem simples e acessível.
 
 Para conteudo_atividade: descreva o exercício detalhadamente como se fosse uma folha de atividade. Inclua exemplos práticos e espaços para resposta descritos em texto (ex: "Escreva o resultado aqui: ___").
+
+Considere a série escolar ao definir o nível de complexidade do conteúdo. Uma criança no 2º ano trabalha números até 100, leitura de palavras simples e frases curtas. Uma criança no 3º ano já trabalha multiplicação simples, textos maiores, etc. Adapte o conteúdo curricular para a necessidade especial, mas mantenha a referência da série.
 
 Adapte a atividade considerando o estilo de aprendizagem do aluno:
 - Visual: use desenhos descritos em texto, cores, diagramas escritos
