@@ -3,7 +3,7 @@
 Portal da Família — endpoints para responsáveis acompanharem e estimularem
 seus filhos com necessidades especiais em casa.
 """
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -40,13 +40,11 @@ class FilhoUpdate(BaseModel):
     aluno_id: Optional[int] = None
 
 
-class RespostaQuestionario(BaseModel):
-    pergunta: str
-    resposta: str
-
-
-class QuestionarioRequest(BaseModel):
-    respostas: List[RespostaQuestionario]
+class QuestionarioEstiloRequest(BaseModel):
+    respostas: dict  # {"p1": "a", "p2": "b", ...}
+    condicao: str
+    idade: int
+    grau: str
 
 
 class GerarAtividadeRequest(BaseModel):
@@ -165,7 +163,7 @@ def atualizar_filho(
 @router.post("/filhos/{filho_id}/questionario-estilo")
 def questionario_estilo(
     filho_id: int,
-    body: QuestionarioRequest,
+    body: QuestionarioEstiloRequest,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -181,14 +179,12 @@ def questionario_estilo(
             detail="Mínimo de 4 respostas necessárias para análise."
         )
 
-    respostas_dict = [r.model_dump() for r in body.respostas]
-
     try:
         analise = analisar_estilo_aprendizagem(
-            respostas=respostas_dict,
-            condicao=filho.condicao,
-            idade=filho.idade,
-            grau=filho.grau_necessidade,
+            respostas=body.respostas,
+            condicao=body.condicao,
+            idade=body.idade,
+            grau=body.grau,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na análise de IA: {str(e)}")
