@@ -62,8 +62,20 @@ def _titulos_planos_recentes(session: Session, aluno_id: int) -> list[str]:
 
 
 def _limpar_json_resposta(texto: str) -> str:
-    """Remove blocos ```json``` que o modelo às vezes retorna."""
-    return re.sub(r"```(?:json)?", "", texto).strip().rstrip("`").strip()
+    """
+    Prepara o texto do modelo para json.loads():
+    1. Remove blocos ```json``` / ```
+    2. Remove caracteres de controle inválidos (exceto \\n e \\t que são válidos em JSON)
+    3. Substitui quebras de linha literais dentro de valores por \\n escapado
+    """
+    # 1. Remove marcadores de bloco de código
+    texto = re.sub(r"```(?:json)?", "", texto).strip().rstrip("`").strip()
+    # 2. Remove caracteres de controle inválidos (mantém \n=0x0a e \t=0x09)
+    texto = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", texto)
+    # 3. Substitui quebras de linha literais dentro de strings por \n escapado
+    #    Regex captura conteúdo entre aspas e normaliza newlines internos
+    texto = re.sub(r'("(?:[^"\\]|\\.)*")', lambda m: m.group(0).replace("\n", "\\n"), texto)
+    return texto
 
 
 def _serializar_lista(valor) -> str | None:
@@ -312,9 +324,12 @@ Responda APENAS com JSON válido, sem markdown, sem texto extra:
     raw = _limpar_json_resposta(texto)
     try:
         resultado = json.loads(raw)
-    except json.JSONDecodeError as e:
-        logger.error(f"Falha ao parsear JSON do Groq: {e}\nResposta bruta:\n{raw}")
-        raise ValueError(f"Groq retornou resposta inválida (não é JSON): {e}") from e
+    except json.JSONDecodeError:
+        try:
+            resultado = json.loads(raw.strip())
+        except json.JSONDecodeError as e:
+            logger.error(f"Falha ao parsear JSON do Groq: {e}\nResposta bruta:\n{raw}")
+            raise ValueError("Groq retornou resposta inválida (não é JSON)") from e
 
     now = datetime.now()
     atividade = AtividadeGerada(
