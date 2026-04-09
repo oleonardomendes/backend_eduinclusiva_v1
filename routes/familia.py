@@ -3,6 +3,7 @@
 Portal da Família — endpoints para responsáveis acompanharem e estimularem
 seus filhos com necessidades especiais em casa.
 """
+import traceback
 from typing import Optional
 from datetime import datetime
 
@@ -180,31 +181,41 @@ def questionario_estilo(
         )
 
     try:
+        # Converte dict {"p1": "a", ...} para list[dict] {"pergunta": k, "resposta": v}
+        respostas_lista = [
+            {"pergunta": k, "resposta": v}
+            for k, v in body.respostas.items()
+        ]
+
         analise = analisar_estilo_aprendizagem(
-            respostas=body.respostas,
+            respostas=respostas_lista,
             condicao=body.condicao,
             idade=body.idade,
             grau=body.grau,
         )
+
+        # Persiste o resultado no perfil do filho
+        filho.estilo_aprendizagem = analise["estilo"]
+        if not filho.grau_necessidade:
+            filho.grau_necessidade = analise["grau"]
+        filho.relatorio_estilo = analise["relatorio"]
+
+        session.add(filho)
+        session.commit()
+        session.refresh(filho)
+
+        return {
+            "estilo_aprendizagem": analise["estilo"],
+            "grau_necessidade": analise["grau"],
+            "relatorio": analise["relatorio"],
+            "filho": filho,
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro na análise de IA: {str(e)}")
-
-    # Persiste o resultado no perfil do filho
-    filho.estilo_aprendizagem = analise["estilo"]
-    if not filho.grau_necessidade:
-        filho.grau_necessidade = analise["grau"]
-    filho.relatorio_estilo = analise["relatorio"]
-
-    session.add(filho)
-    session.commit()
-    session.refresh(filho)
-
-    return {
-        "estilo_aprendizagem": analise["estilo"],
-        "grau_necessidade": analise["grau"],
-        "relatorio": analise["relatorio"],
-        "filho": filho,
-    }
+        print(f"ERRO DETALHADO questionario-estilo: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Erro: {str(e)}")
 
 
 # =========================================================
