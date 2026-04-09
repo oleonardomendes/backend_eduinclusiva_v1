@@ -8,7 +8,7 @@ from datetime import datetime
 from groq import Groq
 from sqlmodel import Session, select
 
-from app.models import Aluno, Avaliacao, AtividadeGerada, AtividadeTemplate, Meta, Plano
+from app.models import Aluno, Avaliacao, AtividadeGerada, AtividadeTemplate, Meta, Plano, FilhoPublico, AtividadeFamilia
 
 logger = logging.getLogger("uvicorn")
 
@@ -403,6 +403,188 @@ def buscar_ou_gerar_atividade(
     # ── Camada 3: geração nova ────────────────────────────────────────────
     atividade_dict = _gerar_via_groq(session, aluno, professor_id, parametros)
     return {"fonte": "ia_nova", "atividade": atividade_dict}
+
+
+# =========================================================
+# Questionário de estilo de aprendizagem (portal família)
+# =========================================================
+
+def analisar_estilo_aprendizagem(
+    respostas: list[dict],
+    condicao: str | None,
+    idade: int | None,
+    grau: str | None,
+) -> dict:
+    """
+    Analisa 8 respostas de um questionário e retorna:
+      {"estilo": str, "grau": str, "relatorio": str}
+
+    Cada item de `respostas` deve ter: {"pergunta": str, "resposta": str}
+    """
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY não configurada nas variáveis de ambiente.")
+
+    respostas_formatadas = "\n".join(
+        f"{i+1}. Pergunta: {r.get('pergunta', '')}\n   Resposta: {r.get('resposta', '')}"
+        for i, r in enumerate(respostas)
+    )
+
+    prompt = f"""Você é um especialista em neuropsicopedagogia e educação inclusiva.
+
+Um responsável respondeu um questionário sobre o filho(a) para identificar o estilo de aprendizagem.
+
+DADOS DA CRIANÇA:
+- Condição/diagnóstico: {condicao or "Não informado"}
+- Idade: {idade or "Não informada"} anos
+- Grau estimado da necessidade: {grau or "Não informado"}
+
+RESPOSTAS DO QUESTIONÁRIO:
+{respostas_formatadas}
+
+TAREFA:
+Com base nas respostas, identifique:
+1. O estilo de aprendizagem predominante (escolha UM: "Visual", "Auditivo", "Cinestésico", "Visual-Cinestésico" ou "Misto")
+2. O grau estimado da necessidade especial (escolha UM: "Leve", "Moderado" ou "Severo")
+3. Um relatório personalizado em português para o responsável (3 a 5 parágrafos) explicando:
+   - O que o estilo de aprendizagem identificado significa
+   - Como isso se manifesta no dia a dia da criança
+   - Estratégias práticas para usar em casa considerando a condição e o estilo
+   - Como estimular o desenvolvimento em casa de forma acolhedora
+
+Responda APENAS com JSON válido:
+{{
+  "estilo": "string",
+  "grau": "string",
+  "relatorio": "string"
+}}"""
+
+    client = Groq(api_key=api_key)
+    logger.info("Analisando estilo de aprendizagem via Groq (portal família)")
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.5,
+    )
+    texto = response.choices[0].message.content
+
+    raw = _limpar_json_resposta(texto)
+    try:
+        resultado = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            resultado = json.loads(raw.strip())
+        except json.JSONDecodeError as e:
+            logger.error(f"Falha ao parsear JSON do Groq (estilo): {e}\nResposta:\n{raw}")
+            raise ValueError("Groq retornou resposta inválida (não é JSON)") from e
+
+    return {
+        "estilo": resultado.get("estilo", "Misto"),
+        "grau": resultado.get("grau", "Moderado"),
+        "relatorio": resultado.get("relatorio", ""),
+    }
+
+
+# =========================================================
+# Geração de atividade para uso em casa (portal família)
+# =========================================================
+
+def gerar_atividade_familia(
+    filho: "FilhoPublico",
+    area: str,
+    descricao_situacao: str,
+    duracao_minutos: int,
+    session: Session,
+) -> dict:
+    """
+    Gera uma atividade para ser realizada em casa pelo responsável com o filho.
+    Salva em AtividadeFamilia e retorna o dict da atividade.
+    """
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY não configurada nas variáveis de ambiente.")
+
+    prompt = f"""Você é um especialista em educação inclusiva e atividades terapêutico-pedagógicas para uso em casa.
+
+PERFIL DA CRIANÇA:
+- Nome: {filho.nome}
+- Idade: {filho.idade or "Não informada"} anos
+- Condição/diagnóstico: {filho.condicao or "Não informada"}
+- Estilo de aprendizagem: {filho.estilo_aprendizagem or "Não identificado"}
+- Grau da necessidade: {filho.grau_necessidade or "Não informado"}
+
+PEDIDO DO RESPONSÁVEL:
+- Área de trabalho: {area}
+- Situação/objetivo: {descricao_situacao}
+- Tempo disponível: {duracao_minutos} minutos
+
+TAREFA:
+Crie UMA atividade prática e acolhedora para o responsável realizar em casa com a criança.
+- Use apenas objetos comuns de casa (colheres, botões, frutas, caixas, papel, etc.)
+- A linguagem deve ser simples, acessível e encorajadora para os pais
+- Considere o estilo de aprendizagem da criança em todas as etapas
+- Adapte para a condição e o grau da necessidade especial
+- O foco é criar um momento de aprendizagem positivo e sem pressão
+
+Adapte ao estilo de aprendizagem:
+- Visual: use cartões coloridos, desenhos, cores, organização visual
+- Auditivo: inclua música, rimas, narração em voz alta
+- Cinestésico: priorize movimento, manipulação de objetos, atividades sensoriais
+- Visual-Cinestésico: combine elementos visuais com atividades práticas
+- Misto: varie as abordagens
+
+Responda APENAS com JSON válido:
+{{
+  "titulo": "string",
+  "objetivo": "string",
+  "duracao_minutos": number,
+  "instrucao_familia": "string (texto motivador explicando como conduzir)",
+  "conteudo_atividade": "string (descrição detalhada da atividade)",
+  "materiais": ["string"],
+  "passo_a_passo": ["string"],
+  "adaptacoes": ["string (dicas extras para facilitar)"]
+}}"""
+
+    client = Groq(api_key=api_key)
+    logger.info(f"Gerando atividade família via Groq para filho {filho.id} ({filho.nome})")
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+    )
+    texto = response.choices[0].message.content
+
+    raw = _limpar_json_resposta(texto)
+    try:
+        resultado = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            resultado = json.loads(raw.strip())
+        except json.JSONDecodeError as e:
+            logger.error(f"Falha ao parsear JSON do Groq (família): {e}\nResposta:\n{raw}")
+            raise ValueError("Groq retornou resposta inválida (não é JSON)") from e
+
+    atividade = AtividadeFamilia(
+        filho_id=filho.id,
+        responsavel_id=filho.responsavel_id,
+        titulo=resultado["titulo"],
+        objetivo=resultado.get("objetivo"),
+        duracao_minutos=resultado.get("duracao_minutos"),
+        area=area,
+        instrucao_familia=resultado.get("instrucao_familia"),
+        conteudo_atividade=resultado.get("conteudo_atividade"),
+        materiais=_serializar_lista(resultado.get("materiais")),
+        passo_a_passo=_serializar_lista(resultado.get("passo_a_passo")),
+        adaptacoes=_serializar_lista(resultado.get("adaptacoes")),
+    )
+    session.add(atividade)
+    session.commit()
+    session.refresh(atividade)
+
+    logger.info(f"Atividade família salva: '{atividade.titulo}' (id={atividade.id})")
+    return atividade.model_dump()
 
 
 # =========================================================

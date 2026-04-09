@@ -1,1 +1,1 @@
-from . import alunos, planos, ai, auth, metas, avaliacoes
+from . import alunos, planos, ai, auth, metas, avaliacoes, familia, publico

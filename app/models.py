@@ -202,6 +202,41 @@ class ConclusaoAtividade(SQLModel, table=True):
 
 
 # =========================================================
+# 👨‍👩‍👦 Filho Público (portal da família)
+# =========================================================
+class FilhoPublico(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    responsavel_id: int = Field(foreign_key="usuario.id", index=True)
+    aluno_id: Optional[int] = Field(default=None, foreign_key="aluno.id", index=True)
+    nome: str
+    idade: Optional[int] = None
+    condicao: Optional[str] = None              # diagnóstico/condição descrita pela família
+    estilo_aprendizagem: Optional[str] = None   # detectado pelo questionário IA
+    grau_necessidade: Optional[str] = None      # "Leve", "Moderado", "Severo"
+    relatorio_estilo: Optional[str] = None      # relatório gerado pelo Groq (texto livre)
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
+# 🏠 Atividade para Família (gerada para uso em casa)
+# =========================================================
+class AtividadeFamilia(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    filho_id: int = Field(foreign_key="filhopublico.id", index=True)
+    responsavel_id: int = Field(foreign_key="usuario.id", index=True)
+    titulo: str
+    objetivo: Optional[str] = None
+    duracao_minutos: Optional[int] = None
+    area: Optional[str] = None                  # "Matemática", "Leitura", etc.
+    instrucao_familia: Optional[str] = None
+    conteudo_atividade: Optional[str] = None
+    materiais: Optional[str] = None             # JSON string (lista)
+    passo_a_passo: Optional[str] = None         # JSON string (lista)
+    adaptacoes: Optional[str] = None            # JSON string (lista)
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):

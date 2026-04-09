@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db
-from routes import alunos, planos, ai, auth, ingest, metas, avaliacoes
+from routes import alunos, planos, ai, auth, ingest, metas, avaliacoes, familia, publico
 import logging
 import os
 
@@ -90,6 +90,8 @@ app.include_router(ai.router,     prefix="/v1/ai", tags=["Inteligência Artifici
 app.include_router(ingest.router,     prefix="/v1",             tags=["Documentos e Ingestão"])
 app.include_router(metas.router,      prefix="/v1/metas",       tags=["Metas"])
 app.include_router(avaliacoes.router, prefix="/v1/avaliacoes",  tags=["Avaliações"])
+app.include_router(familia.router,    prefix="/v1/familia",     tags=["Portal Família"])
+app.include_router(publico.router,    prefix="/v1/publico",     tags=["Público"])
 
 # 🏥 Healthcheck (útil para Render)
 @app.get("/healthz", tags=["Status"])
