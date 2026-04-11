@@ -237,6 +237,27 @@ class AtividadeFamilia(SQLModel, table=True):
 
 
 # =========================================================
+# 📝 Registro de Percepção (portal da família)
+# =========================================================
+class RegistroPercepcao(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    filho_id: int = Field(foreign_key="filhopublico.id", index=True)
+    atividade_id: int = Field(foreign_key="atividadegerada.id", index=True)
+    responsavel_id: int = Field(foreign_key="usuario.id", index=True)
+
+    # 3 perguntas simples
+    humor: str                      # "otimo", "bem", "regular", "dificil"
+    observacao: Optional[str] = None  # texto livre do pai
+    proxima_acao: str               # "repetir", "adaptar", "proxima"
+
+    # Campos calculados pela IA
+    analise_ia: Optional[str] = None  # JSON com {"ponto_positivo": ..., "sugestao": ...}
+    area: Optional[str] = None        # área da atividade (copiada no momento do registro)
+
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):
