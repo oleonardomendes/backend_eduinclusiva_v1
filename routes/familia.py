@@ -406,19 +406,37 @@ Responda em JSON:
         if resultado:
             analise_ia = json.dumps(resultado, ensure_ascii=False)
 
-    registro = RegistroPercepcao(
-        filho_id=filho_id,
-        atividade_id=atividade_id,
-        responsavel_id=current_user.id,
-        humor=body.humor,
-        observacao=body.observacao,
-        proxima_acao=body.proxima_acao,
-        analise_ia=analise_ia,
-        area=atividade.disciplina,
-    )
-    session.add(registro)
-    session.commit()
-    session.refresh(registro)
+    percepcao_existente = session.exec(
+        select(RegistroPercepcao).where(
+            RegistroPercepcao.atividade_id == atividade_id,
+            RegistroPercepcao.filho_id == filho_id,
+        )
+    ).first()
+
+    if percepcao_existente:
+        percepcao_existente.humor = body.humor
+        percepcao_existente.observacao = body.observacao
+        percepcao_existente.proxima_acao = body.proxima_acao
+        percepcao_existente.analise_ia = analise_ia
+        percepcao_existente.criado_em = datetime.utcnow()
+        session.add(percepcao_existente)
+        session.commit()
+        session.refresh(percepcao_existente)
+        registro = percepcao_existente
+    else:
+        registro = RegistroPercepcao(
+            filho_id=filho_id,
+            atividade_id=atividade_id,
+            responsavel_id=current_user.id,
+            humor=body.humor,
+            observacao=body.observacao,
+            proxima_acao=body.proxima_acao,
+            analise_ia=analise_ia,
+            area=atividade.disciplina,
+        )
+        session.add(registro)
+        session.commit()
+        session.refresh(registro)
 
     return {
         "registro": registro,
