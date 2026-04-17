@@ -12,7 +12,7 @@ from app.schemas import PlanoGeradoIA, PlanoCreate, PlanoRead
 from services.rag_service import gerar_plano_adaptado
 from services.ai_service import buscar_ou_gerar_atividade
 from app.crud import create_plano
-from app.models import Plano, Aluno, AtividadeGerada, AtividadeTemplate, ConclusaoAtividade
+from app.models import Plano, Aluno, AtividadeGerada, AtividadeTemplate, ConclusaoAtividade, FilhoPublico
 from routes.auth import get_current_user
 
 router = APIRouter()
@@ -363,9 +363,22 @@ def concluir_atividade(
     if not atividade:
         raise HTTPException(status_code=404, detail="Atividade não encontrada.")
 
-    aluno = session.get(Aluno, atividade.aluno_id)
-    if not aluno or not _pode_ver_aluno(current_user, aluno):
-        raise HTTPException(status_code=403, detail="Acesso negado a esta atividade.")
+    papel = (current_user.papel or "").lower()
+    aluno = None
+
+    if papel == "familia":
+        filho = session.exec(
+            select(FilhoPublico).where(
+                FilhoPublico.id == atividade.aluno_id,
+                FilhoPublico.responsavel_id == current_user.id,
+            )
+        ).first()
+        if not filho:
+            raise HTTPException(status_code=403, detail="Acesso negado.")
+    else:
+        aluno = session.get(Aluno, atividade.aluno_id)
+        if not aluno or not _pode_ver_aluno(current_user, aluno):
+            raise HTTPException(status_code=403, detail="Acesso negado a esta atividade.")
 
     # Calcula nota_geral como média das competências preenchidas
     campos_nota = [
@@ -404,22 +417,24 @@ def concluir_atividade(
     atividade.concluida_em = datetime.utcnow()
     session.add(atividade)
 
-    # Atualiza progresso_geral do aluno
-    progresso_atual = aluno.progresso_geral or 0
-    if nota_geral is not None:
-        if nota_geral >= 7.0:
-            aluno.progresso_geral = min(100, progresso_atual + 5)
-        elif nota_geral >= 5.0:
-            aluno.progresso_geral = min(100, progresso_atual + 2)
-        # nota < 5.0 → não altera
-    else:
-        aluno.progresso_geral = min(100, progresso_atual + 1)
-    session.add(aluno)
+    # Atualiza progresso_geral do aluno (não aplicável para usuários família)
+    if aluno is not None:
+        progresso_atual = aluno.progresso_geral or 0
+        if nota_geral is not None:
+            if nota_geral >= 7.0:
+                aluno.progresso_geral = min(100, progresso_atual + 5)
+            elif nota_geral >= 5.0:
+                aluno.progresso_geral = min(100, progresso_atual + 2)
+            # nota < 5.0 → não altera
+        else:
+            aluno.progresso_geral = min(100, progresso_atual + 1)
+        session.add(aluno)
 
     session.commit()
     session.refresh(conclusao)
     session.refresh(atividade)
-    session.refresh(aluno)
+    if aluno is not None:
+        session.refresh(aluno)
 
     # Desserializa competencias_trabalhadas para o response
     conclusao_dict = conclusao.model_dump()
