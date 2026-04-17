@@ -16,6 +16,11 @@ class Usuario(SQLModel, table=True):
     papel: str = Field(default="professor", description="admin, gestor, professor, familia")
     criado_em: datetime = Field(default_factory=datetime.utcnow)
 
+    # Plano e controle de uso mensal
+    plano: str = Field(default="gratuito")              # "gratuito" | "familia" | "professor" | "escola"
+    atividades_mes_count: int = Field(default=0)        # atividades geradas no mês corrente
+    atividades_mes_reset: Optional[datetime] = None     # data do último reset do contador
+
     # Relacionamento: professor tem vários alunos
     alunos: List["Aluno"] = Relationship(back_populates="professor")
 

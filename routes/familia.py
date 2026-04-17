@@ -70,6 +70,10 @@ class PercepaoCreate(BaseModel):
     proxima_acao: str               # "repetir"|"adaptar"|"proxima"
 
 
+class UpgradePlanoRequest(BaseModel):
+    plano: str                      # "familia"
+
+
 # =========================================================
 # Guard de papel
 # =========================================================
@@ -86,6 +90,49 @@ def _verificar_familia(current_user: Usuario) -> None:
 def _verificar_dono_filho(filho: FilhoPublico, current_user: Usuario) -> None:
     if filho.responsavel_id != current_user.id:
         raise HTTPException(status_code=403, detail="Acesso negado a este filho.")
+
+
+_EXCLUSIVAS_PAGO = {"questionario_estilo", "percepcao", "evolucao", "pdf"}
+_PLANOS_PAGOS = {"familia", "professor", "escola"}
+
+
+def verificar_acesso_plano(
+    current_user: Usuario,
+    funcionalidade: str,
+    session: Session,
+) -> tuple[bool, str]:
+    plano = current_user.plano or "gratuito"
+
+    if funcionalidade in _EXCLUSIVAS_PAGO:
+        if plano == "gratuito":
+            return False, "Esta funcionalidade é exclusiva do Plano Família."
+        return True, ""
+
+    if funcionalidade == "gerar_atividade":
+        if plano in _PLANOS_PAGOS:
+            return True, ""
+
+        agora = datetime.utcnow()
+        reset = current_user.atividades_mes_reset
+        if (
+            reset is None
+            or reset.month != agora.month
+            or reset.year != agora.year
+        ):
+            current_user.atividades_mes_count = 0
+            current_user.atividades_mes_reset = agora
+            session.add(current_user)
+            session.commit()
+
+        if current_user.atividades_mes_count >= 3:
+            return (
+                False,
+                "Você atingiu o limite de 3 atividades gratuitas este mês. "
+                "Assine o Plano Família para atividades ilimitadas.",
+            )
+        return True, ""
+
+    return True, ""
 
 
 # =========================================================
@@ -185,6 +232,10 @@ def questionario_estilo(
     current_user: Usuario = Depends(get_current_user),
 ):
     _verificar_familia(current_user)
+    tem_acesso, msg = verificar_acesso_plano(current_user, "questionario_estilo", session)
+    if not tem_acesso:
+        raise HTTPException(status_code=403, detail=msg)
+
     filho = session.get(FilhoPublico, filho_id)
     if not filho:
         raise HTTPException(status_code=404, detail="Filho não encontrado.")
@@ -275,6 +326,10 @@ def gerar_atividade(
     current_user: Usuario = Depends(get_current_user),
 ):
     _verificar_familia(current_user)
+    tem_acesso, msg = verificar_acesso_plano(current_user, "gerar_atividade", session)
+    if not tem_acesso:
+        raise HTTPException(status_code=403, detail=msg)
+
     filho = session.get(FilhoPublico, filho_id)
     if not filho:
         raise HTTPException(status_code=404, detail="Filho não encontrado.")
@@ -290,6 +345,11 @@ def gerar_atividade(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na geração de atividade: {str(e)}")
+
+    # Incrementa contador mensal após geração bem-sucedida
+    current_user.atividades_mes_count += 1
+    session.add(current_user)
+    session.commit()
 
     return atividade
 
@@ -379,6 +439,10 @@ def registrar_percepcao(
     current_user: Usuario = Depends(get_current_user),
 ):
     _verificar_familia(current_user)
+    tem_acesso, msg = verificar_acesso_plano(current_user, "percepcao", session)
+    if not tem_acesso:
+        raise HTTPException(status_code=403, detail=msg)
+
     filho = session.get(FilhoPublico, filho_id)
     if not filho:
         raise HTTPException(status_code=404, detail="Filho não encontrado.")
@@ -486,6 +550,10 @@ def evolucao_filho(
     current_user: Usuario = Depends(get_current_user),
 ):
     _verificar_familia(current_user)
+    tem_acesso, msg = verificar_acesso_plano(current_user, "evolucao", session)
+    if not tem_acesso:
+        raise HTTPException(status_code=403, detail=msg)
+
     filho = session.get(FilhoPublico, filho_id)
     if not filho:
         raise HTTPException(status_code=404, detail="Filho não encontrado.")
@@ -575,4 +643,67 @@ Responda em JSON:
         "por_area": por_area,
         "ultimos_30_dias": ultimos_30_dias,
         "insights": insights,
+    }
+
+
+# =========================================================
+# GET /plano — status do plano do responsável
+# =========================================================
+
+@router.get("/plano")
+def status_plano(
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_familia(current_user)
+    plano = current_user.plano or "gratuito"
+    pago = plano in _PLANOS_PAGOS
+
+    atividades_usadas = current_user.atividades_mes_count or 0
+    limite = None if pago else 3
+    restantes = None if pago else max(0, 3 - atividades_usadas)
+
+    return {
+        "plano": plano,
+        "atividades_usadas": atividades_usadas,
+        "atividades_limite": limite,
+        "atividades_restantes": restantes,
+        "funcionalidades": {
+            "questionario_estilo": pago,
+            "percepcao": pago,
+            "evolucao": pago,
+            "pdf": pago,
+            "atividades_ilimitadas": pago,
+        },
+    }
+
+
+# =========================================================
+# POST /plano/upgrade — upgrade do plano (simulado)
+# =========================================================
+
+PLANOS_VALIDOS = {"familia", "professor", "escola", "gratuito"}
+
+
+@router.post("/plano/upgrade")
+def upgrade_plano(
+    body: UpgradePlanoRequest,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_familia(current_user)
+    if body.plano not in PLANOS_VALIDOS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Plano inválido. Opções: {', '.join(PLANOS_VALIDOS)}"
+        )
+
+    current_user.plano = body.plano
+    session.add(current_user)
+    session.commit()
+    session.refresh(current_user)
+
+    return {
+        "mensagem": f"Plano atualizado para '{body.plano}' com sucesso.",
+        "plano": current_user.plano,
+        "email": current_user.email,
     }
