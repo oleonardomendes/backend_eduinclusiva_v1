@@ -219,6 +219,7 @@ class FilhoPublico(SQLModel, table=True):
     estilo_aprendizagem: Optional[str] = None   # detectado pelo questionário IA
     grau_necessidade: Optional[str] = None      # "Leve", "Moderado", "Severo"
     relatorio_estilo: Optional[str] = None      # relatório gerado pelo Groq (texto livre)
+    progresso_geral: Optional[int] = Field(default=0)  # 0 a 100
     criado_em: datetime = Field(default_factory=datetime.utcnow)
 
 

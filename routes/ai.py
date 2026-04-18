@@ -365,6 +365,7 @@ def concluir_atividade(
 
     papel = (current_user.papel or "").lower()
     aluno = None
+    filho = None
 
     if papel == "familia":
         filho = session.exec(
@@ -417,7 +418,7 @@ def concluir_atividade(
     atividade.concluida_em = datetime.utcnow()
     session.add(atividade)
 
-    # Atualiza progresso_geral do aluno (não aplicável para usuários família)
+    # Atualiza progresso_geral do aluno (professor)
     if aluno is not None:
         progresso_atual = aluno.progresso_geral or 0
         if nota_geral is not None:
@@ -430,11 +431,25 @@ def concluir_atividade(
             aluno.progresso_geral = min(100, progresso_atual + 1)
         session.add(aluno)
 
+    # Atualiza progresso_geral do filho (família)
+    if filho is not None:
+        progresso_atual = filho.progresso_geral or 0
+        nota = nota_geral or 0
+        if nota >= 7.0:
+            filho.progresso_geral = min(100, progresso_atual + 5)
+        elif nota >= 5.0:
+            filho.progresso_geral = min(100, progresso_atual + 2)
+        else:
+            filho.progresso_geral = min(100, progresso_atual + 1)
+        session.add(filho)
+
     session.commit()
     session.refresh(conclusao)
     session.refresh(atividade)
     if aluno is not None:
         session.refresh(aluno)
+    if filho is not None:
+        session.refresh(filho)
 
     # Desserializa competencias_trabalhadas para o response
     conclusao_dict = conclusao.model_dump()
@@ -444,10 +459,12 @@ def concluir_atividade(
         except (json.JSONDecodeError, TypeError):
             conclusao_dict["competencias_trabalhadas"] = []
 
+    progresso = aluno.progresso_geral if aluno else (filho.progresso_geral if filho else None)
+
     return {
         "conclusao": conclusao_dict,
         "atividade": _desserializar_atividade(atividade),
-        "progresso_atualizado": aluno.progresso_geral,
+        "progresso_atualizado": progresso,
     }
 
 
