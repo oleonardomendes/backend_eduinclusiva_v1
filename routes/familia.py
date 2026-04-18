@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models import FilhoPublico, AtividadeFamilia, AtividadeGerada, RegistroPercepcao
+from app.models import FilhoPublico, AtividadeGerada, RegistroPercepcao
 from routes.auth import get_current_user, Usuario
 from services.ai_service import (
     analisar_estilo_aprendizagem,
@@ -371,9 +371,9 @@ def listar_atividades(
     _verificar_dono_filho(filho, current_user)
 
     atividades = session.exec(
-        select(AtividadeFamilia)
-        .where(AtividadeFamilia.filho_id == filho_id)
-        .order_by(AtividadeFamilia.criado_em.desc())  # type: ignore[attr-defined]
+        select(AtividadeGerada)
+        .where(AtividadeGerada.aluno_id == filho_id)
+        .order_by(AtividadeGerada.criado_em.desc())  # type: ignore[attr-defined]
     ).all()
 
     return atividades

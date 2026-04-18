@@ -8,7 +8,7 @@ from datetime import datetime
 from groq import Groq
 from sqlmodel import Session, select
 
-from app.models import Aluno, Avaliacao, AtividadeGerada, AtividadeTemplate, Meta, Plano, FilhoPublico, AtividadeFamilia
+from app.models import Aluno, Avaliacao, AtividadeGerada, AtividadeTemplate, Meta, Plano, FilhoPublico
 
 logger = logging.getLogger("uvicorn")
 
@@ -566,24 +566,31 @@ Responda APENAS com JSON válido:
             logger.error(f"Falha ao parsear JSON do Groq (família): {e}\nResposta:\n{raw}")
             raise ValueError("Groq retornou resposta inválida (não é JSON)") from e
 
-    atividade = AtividadeFamilia(
-        filho_id=filho.id,
-        responsavel_id=filho.responsavel_id,
+    now = datetime.now()
+    atividade = AtividadeGerada(
+        aluno_id=filho.id,
+        professor_id=filho.responsavel_id,
         titulo=resultado["titulo"],
         objetivo=resultado.get("objetivo"),
         duracao_minutos=resultado.get("duracao_minutos"),
-        area=area,
+        dificuldade=resultado.get("dificuldade"),
         instrucao_familia=resultado.get("instrucao_familia"),
         conteudo_atividade=resultado.get("conteudo_atividade"),
         materiais=_serializar_lista(resultado.get("materiais")),
         passo_a_passo=_serializar_lista(resultado.get("passo_a_passo")),
         adaptacoes=_serializar_lista(resultado.get("adaptacoes")),
+        disciplina=area,
+        tipo_atividade="familia",
+        reutilizavel=False,
+        necessidade_atendida=filho.condicao,
+        bimestre=(now.month - 1) // 3 + 1,
+        ano=now.year,
     )
     session.add(atividade)
     session.commit()
     session.refresh(atividade)
 
-    logger.info(f"Atividade família salva: '{atividade.titulo}' (id={atividade.id})")
+    logger.info(f"Atividade família salva em AtividadeGerada: '{atividade.titulo}' (id={atividade.id})")
     return atividade.model_dump()
 
 

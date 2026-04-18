@@ -222,24 +222,6 @@ class FilhoPublico(SQLModel, table=True):
     criado_em: datetime = Field(default_factory=datetime.utcnow)
 
 
-# =========================================================
-# 🏠 Atividade para Família (gerada para uso em casa)
-# =========================================================
-class AtividadeFamilia(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    filho_id: int = Field(foreign_key="filhopublico.id", index=True)
-    responsavel_id: int = Field(foreign_key="usuario.id", index=True)
-    titulo: str
-    objetivo: Optional[str] = None
-    duracao_minutos: Optional[int] = None
-    area: Optional[str] = None                  # "Matemática", "Leitura", etc.
-    instrucao_familia: Optional[str] = None
-    conteudo_atividade: Optional[str] = None
-    materiais: Optional[str] = None             # JSON string (lista)
-    passo_a_passo: Optional[str] = None         # JSON string (lista)
-    adaptacoes: Optional[str] = None            # JSON string (lista)
-    criado_em: datetime = Field(default_factory=datetime.utcnow)
-
 
 # =========================================================
 # 📝 Registro de Percepção (portal da família)
