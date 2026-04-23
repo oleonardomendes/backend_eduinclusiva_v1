@@ -58,7 +58,7 @@ class UsuarioMeOut(BaseModel):
 # ========================
 ALLOWED_ROLES = {
     "admin", "gestor", "professor", "familia",
-    "secretaria", "coordenadora", "responsavel",
+    "secretaria", "coordenadora", "responsavel", "especialista",
 }
 
 def normalize_role(papel: str) -> str:
