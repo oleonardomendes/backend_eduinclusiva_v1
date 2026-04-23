@@ -246,6 +246,102 @@ class RegistroPercepcao(SQLModel, table=True):
 
 
 # =========================================================
+# 🏥 Módulo Clínico — Paciente
+# =========================================================
+class PacienteClinico(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    especialista_id: int = Field(foreign_key="usuario.id", index=True)
+    filho_publico_id: Optional[int] = Field(default=None, foreign_key="filhopublico.id", index=True)
+
+    nome: str
+    data_nascimento: Optional[date] = None
+    idade: Optional[int] = None
+    condicao: Optional[str] = None
+    grau: Optional[str] = None
+    estilo_aprendizagem: Optional[str] = None
+    e_verbal: Optional[bool] = None
+    usa_comunicacao_alternativa: Optional[bool] = None
+    observacoes: Optional[str] = None
+    escola: Optional[str] = None
+    serie: Optional[str] = None
+    responsavel_nome: Optional[str] = None
+    responsavel_telefone: Optional[str] = None
+    responsavel_email: Optional[str] = None
+    terapias_em_andamento: Optional[str] = None     # JSON list
+    usa_aba: Optional[bool] = Field(default=False)
+    medicamentos: Optional[str] = None
+    ativo: bool = Field(default=True)
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
+# 🏥 Módulo Clínico — Sessão
+# =========================================================
+class SessaoClinica(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
+    especialista_id: int = Field(foreign_key="usuario.id", index=True)
+    especialidade: str                              # "psicopedagogia", "psicomotricidade", "fono", "to", "psicologia", "aba", "outro"
+    data_sessao: date
+    duracao_minutos: Optional[int] = None
+    humor_inicio: Optional[str] = None             # "otimo", "bem", "regular", "dificil"
+    atividades_realizadas: Optional[str] = None
+    resposta_crianca: Optional[str] = None
+    o_que_funcionou: Optional[str] = None
+    o_que_nao_funcionou: Optional[str] = None
+    observacoes_clinicas: Optional[str] = None
+    proxima_sessao_foco: Optional[str] = None
+
+    # Psicopedagogia+
+    habilidades_trabalhadas: Optional[str] = None  # JSON list
+    nivel_leitura: Optional[str] = None
+    nivel_escrita: Optional[str] = None
+    nivel_matematica: Optional[str] = None
+
+    # Psicomotricidade+
+    coordenacao_fina: Optional[str] = None         # "emergente", "em_desenvolvimento", "consolidado"
+    coordenacao_grossa: Optional[str] = None
+    equilibrio: Optional[str] = None
+    lateralidade: Optional[str] = None
+    esquema_corporal: Optional[str] = None
+
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
+# 🏥 Módulo Clínico — Plano Semanal
+# =========================================================
+class PlanoSemanal(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
+    especialista_id: int = Field(foreign_key="usuario.id", index=True)
+    sessao_id: Optional[int] = Field(default=None, foreign_key="sessaoclinica.id")
+    semana_inicio: date
+    semana_fim: date
+    tarefas: str                                    # JSON list de tarefas
+    orientacoes_gerais: Optional[str] = None
+    atividade_ia_id: Optional[int] = Field(default=None, foreign_key="atividadegerada.id")
+    enviado_familia: bool = Field(default=False)
+    enviado_em: Optional[datetime] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
+# 🏥 Módulo Clínico — Registro de Plano pela Família
+# =========================================================
+class RegistroPlanoFamilia(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    plano_id: int = Field(foreign_key="planossemanal.id", index=True)
+    paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
+    responsavel_id: int = Field(foreign_key="usuario.id", index=True)
+    tarefa_index: int
+    concluiu: bool = Field(default=False)
+    humor: Optional[str] = None
+    observacao: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):

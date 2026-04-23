@@ -16,7 +16,14 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models import FilhoPublico, AtividadeGerada, RegistroPercepcao
+from app.models import (
+    FilhoPublico,
+    AtividadeGerada,
+    RegistroPercepcao,
+    PacienteClinico,
+    PlanoSemanal,
+    RegistroPlanoFamilia,
+)
 from routes.auth import get_current_user, Usuario
 from services.ai_service import (
     analisar_estilo_aprendizagem,
@@ -707,3 +714,114 @@ def upgrade_plano(
         "plano": current_user.plano,
         "email": current_user.email,
     }
+
+
+# =========================================================
+# GET /planos-prescritos/ — planos semanais enviados pelo especialista
+# =========================================================
+
+@router.get("/planos-prescritos/")
+def planos_prescritos(
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_familia(current_user)
+
+    # Busca filhos do responsável
+    filhos = session.exec(
+        select(FilhoPublico).where(FilhoPublico.responsavel_id == current_user.id)
+    ).all()
+    filho_ids = [f.id for f in filhos]
+
+    if not filho_ids:
+        return []
+
+    # Busca pacientes clínicos vinculados a esses filhos
+    pacientes = session.exec(
+        select(PacienteClinico).where(
+            PacienteClinico.filho_publico_id.in_(filho_ids)  # type: ignore[attr-defined]
+        )
+    ).all()
+    paciente_ids = [p.id for p in pacientes]
+
+    if not paciente_ids:
+        return []
+
+    # Busca planos enviados para a família
+    planos = session.exec(
+        select(PlanoSemanal)
+        .where(
+            PlanoSemanal.paciente_id.in_(paciente_ids),  # type: ignore[attr-defined]
+            PlanoSemanal.enviado_familia == True,  # noqa: E712
+        )
+        .order_by(PlanoSemanal.semana_inicio.desc())  # type: ignore[attr-defined]
+    ).all()
+
+    result = []
+    for p in planos:
+        d = p.model_dump()
+        try:
+            d["tarefas"] = json.loads(p.tarefas)
+        except (json.JSONDecodeError, TypeError):
+            d["tarefas"] = []
+        result.append(d)
+    return result
+
+
+# =========================================================
+# POST /planos/{plano_id}/tarefas/{tarefa_index}/registrar
+# =========================================================
+
+class RegistroTarefaCreate(BaseModel):
+    concluiu: bool
+    humor: Optional[str] = None
+    observacao: Optional[str] = None
+
+
+@router.post("/planos/{plano_id}/tarefas/{tarefa_index}/registrar", status_code=201)
+def registrar_tarefa(
+    plano_id: int,
+    tarefa_index: int,
+    body: RegistroTarefaCreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_familia(current_user)
+
+    plano = session.get(PlanoSemanal, plano_id)
+    if not plano:
+        raise HTTPException(status_code=404, detail="Plano não encontrado.")
+    if not plano.enviado_familia:
+        raise HTTPException(status_code=403, detail="Plano não disponível para a família.")
+
+    # Verifica que o responsável tem acesso ao paciente deste plano
+    filhos = session.exec(
+        select(FilhoPublico).where(FilhoPublico.responsavel_id == current_user.id)
+    ).all()
+    filho_ids = [f.id for f in filhos]
+
+    paciente = session.get(PacienteClinico, plano.paciente_id)
+    if not paciente or paciente.filho_publico_id not in filho_ids:
+        raise HTTPException(status_code=403, detail="Acesso negado a este plano.")
+
+    try:
+        tarefas = json.loads(plano.tarefas)
+    except (json.JSONDecodeError, TypeError):
+        tarefas = []
+
+    if tarefa_index < 0 or tarefa_index >= len(tarefas):
+        raise HTTPException(status_code=422, detail="Índice de tarefa inválido.")
+
+    registro = RegistroPlanoFamilia(
+        plano_id=plano_id,
+        paciente_id=plano.paciente_id,
+        responsavel_id=current_user.id,
+        tarefa_index=tarefa_index,
+        concluiu=body.concluiu,
+        humor=body.humor,
+        observacao=body.observacao,
+    )
+    session.add(registro)
+    session.commit()
+    session.refresh(registro)
+    return registro
