@@ -23,6 +23,8 @@ from app.models import (
     PacienteClinico,
     PlanoSemanal,
     RegistroPlanoFamilia,
+    VinculoEspecialistaFamilia,
+    Usuario as UsuarioModel,
 )
 from routes.auth import get_current_user, Usuario
 from services.ai_service import (
@@ -727,27 +729,39 @@ def planos_prescritos(
 ):
     _verificar_familia(current_user)
 
-    # Busca filhos do responsável
-    filhos = session.exec(
-        select(FilhoPublico).where(FilhoPublico.responsavel_id == current_user.id)
-    ).all()
-    filho_ids = [f.id for f in filhos]
-
-    if not filho_ids:
-        return []
-
-    # Busca pacientes clínicos vinculados a esses filhos
-    pacientes = session.exec(
-        select(PacienteClinico).where(
-            PacienteClinico.filho_publico_id.in_(filho_ids)  # type: ignore[attr-defined]
+    # Busca vínculos ativos do responsável
+    vinculos = session.exec(
+        select(VinculoEspecialistaFamilia).where(
+            VinculoEspecialistaFamilia.responsavel_id == current_user.id,
+            VinculoEspecialistaFamilia.status == "ativo",
         )
     ).all()
-    paciente_ids = [p.id for p in pacientes]
 
-    if not paciente_ids:
+    if not vinculos:
         return []
 
-    # Busca planos enviados para a família
+    paciente_ids = [v.paciente_id for v in vinculos]
+    especialista_ids = {v.especialista_id for v in vinculos}
+
+    # Pre-carrega nomes dos especialistas e pacientes
+    especialistas = {
+        u.id: u.nome
+        for u in session.exec(
+            select(UsuarioModel).where(
+                UsuarioModel.id.in_(especialista_ids)  # type: ignore[attr-defined]
+            )
+        ).all()
+    }
+    pacientes = {
+        p.id: p
+        for p in session.exec(
+            select(PacienteClinico).where(
+                PacienteClinico.id.in_(paciente_ids)  # type: ignore[attr-defined]
+            )
+        ).all()
+    }
+
+    # Busca planos enviados
     planos = session.exec(
         select(PlanoSemanal)
         .where(
@@ -764,6 +778,9 @@ def planos_prescritos(
             d["tarefas"] = json.loads(p.tarefas)
         except (json.JSONDecodeError, TypeError):
             d["tarefas"] = []
+        paciente = pacientes.get(p.paciente_id)
+        d["paciente_nome"] = paciente.nome if paciente else None
+        d["especialista_nome"] = especialistas.get(p.especialista_id)
         result.append(d)
     return result
 
@@ -825,3 +842,90 @@ def registrar_tarefa(
     session.commit()
     session.refresh(registro)
     return registro
+
+
+# =========================================================
+# POST /vincular-especialista/ — aceitar convite
+# =========================================================
+
+class VinculoRequest(BaseModel):
+    codigo_convite: str
+    filho_id: int
+
+
+@router.post("/vincular-especialista/", status_code=201)
+def vincular_especialista(
+    body: VinculoRequest,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_familia(current_user)
+
+    vinculo = session.exec(
+        select(VinculoEspecialistaFamilia).where(
+            VinculoEspecialistaFamilia.codigo_convite == body.codigo_convite
+        )
+    ).first()
+
+    if not vinculo:
+        raise HTTPException(status_code=404, detail="Código inválido.")
+    if vinculo.status != "pendente":
+        raise HTTPException(status_code=400, detail="Código já utilizado.")
+
+    filho = session.get(FilhoPublico, body.filho_id)
+    if not filho or filho.responsavel_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Acesso negado a este filho.")
+
+    # Ativa o vínculo
+    vinculo.filho_publico_id = body.filho_id
+    vinculo.responsavel_id = current_user.id
+    vinculo.status = "ativo"
+    vinculo.aceito_em = datetime.utcnow()
+    session.add(vinculo)
+
+    # Sincroniza PacienteClinico com o FilhoPublico
+    paciente = session.get(PacienteClinico, vinculo.paciente_id)
+    if paciente:
+        paciente.filho_publico_id = body.filho_id
+        session.add(paciente)
+
+    session.commit()
+    session.refresh(vinculo)
+
+    especialista = session.get(UsuarioModel, vinculo.especialista_id)
+    return {
+        "mensagem": "Vínculo criado com sucesso!",
+        "especialista": especialista.nome if especialista else None,
+        "paciente": paciente.nome if paciente else None,
+    }
+
+
+# =========================================================
+# GET /meus-especialistas/ — vínculos ativos da família
+# =========================================================
+
+@router.get("/meus-especialistas/")
+def meus_especialistas(
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_familia(current_user)
+
+    vinculos = session.exec(
+        select(VinculoEspecialistaFamilia).where(
+            VinculoEspecialistaFamilia.responsavel_id == current_user.id,
+            VinculoEspecialistaFamilia.status == "ativo",
+        )
+    ).all()
+
+    result = []
+    for v in vinculos:
+        especialista = session.get(UsuarioModel, v.especialista_id)
+        paciente = session.get(PacienteClinico, v.paciente_id)
+        result.append({
+            "vinculo_id": v.id,
+            "especialista_nome": especialista.nome if especialista else None,
+            "paciente_nome": paciente.nome if paciente else None,
+            "aceito_em": v.aceito_em,
+        })
+    return result

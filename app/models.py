@@ -342,6 +342,21 @@ class RegistroPlanoFamilia(SQLModel, table=True):
 
 
 # =========================================================
+# 🔗 Vínculo Especialista ↔ Família
+# =========================================================
+class VinculoEspecialistaFamilia(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    especialista_id: int = Field(foreign_key="usuario.id", index=True)
+    paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
+    filho_publico_id: Optional[int] = Field(default=None, foreign_key="filhopublico.id", index=True)
+    responsavel_id: Optional[int] = Field(default=None, foreign_key="usuario.id", index=True)
+    codigo_convite: str = Field(index=True)         # código único gerado pelo especialista
+    status: str = Field(default="pendente")         # "pendente" | "ativo" | "inativo"
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+    aceito_em: Optional[datetime] = None
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):

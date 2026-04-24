@@ -7,6 +7,8 @@ gerenciarem pacientes, sessões e planos semanais.
 import os
 import json
 import logging
+import secrets
+import string
 from typing import Optional
 from datetime import datetime, date
 
@@ -20,8 +22,11 @@ from app.models import (
     PacienteClinico,
     SessaoClinica,
     PlanoSemanal,
+    RegistroPlanoFamilia,
+    VinculoEspecialistaFamilia,
     FilhoPublico,
     Aluno,
+    Usuario as UsuarioModel,
 )
 from routes.auth import get_current_user, Usuario
 from services.ai_service import buscar_ou_gerar_atividade, _limpar_json_resposta
@@ -543,3 +548,118 @@ Responda em JSON:
         "ultimas_sessoes": [s.model_dump() for s in sessoes],
         "relatorio_ia": relatorio_ia,
     }
+
+
+# =========================================================
+# POST /pacientes/{id}/gerar-convite
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/gerar-convite", status_code=201)
+def gerar_convite(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    codigo = "".join(
+        secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8)
+    )
+
+    vinculo = VinculoEspecialistaFamilia(
+        especialista_id=current_user.id,
+        paciente_id=paciente_id,
+        codigo_convite=codigo,
+        status="pendente",
+    )
+    session.add(vinculo)
+    session.commit()
+    session.refresh(vinculo)
+
+    return {
+        "codigo_convite": codigo,
+        "instrucoes": (
+            "Compartilhe este código com a família do paciente. "
+            "Eles devem inserir no portal da família em 'Vincular especialista'."
+        ),
+        "expira_em": "nunca (válido até ser usado)",
+    }
+
+
+# =========================================================
+# GET /pacientes/{id}/vinculos/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/vinculos/")
+def listar_vinculos(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    vinculos = session.exec(
+        select(VinculoEspecialistaFamilia).where(
+            VinculoEspecialistaFamilia.paciente_id == paciente_id
+        )
+    ).all()
+
+    result = []
+    for v in vinculos:
+        d = v.model_dump()
+        if v.responsavel_id:
+            responsavel = session.get(UsuarioModel, v.responsavel_id)
+            d["responsavel_nome"] = responsavel.nome if responsavel else None
+        else:
+            d["responsavel_nome"] = None
+        result.append(d)
+    return result
+
+
+# =========================================================
+# GET /pacientes/{id}/registros-familia/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/registros-familia/")
+def registros_familia(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    planos = session.exec(
+        select(PlanoSemanal).where(PlanoSemanal.paciente_id == paciente_id)
+    ).all()
+
+    result = []
+    for plano in planos:
+        registros = session.exec(
+            select(RegistroPlanoFamilia).where(
+                RegistroPlanoFamilia.plano_id == plano.id
+            )
+        ).all()
+
+        try:
+            tarefas = json.loads(plano.tarefas)
+        except (json.JSONDecodeError, TypeError):
+            tarefas = []
+
+        total_tarefas = len(tarefas)
+        concluidas = sum(1 for r in registros if r.concluiu)
+        percentual = round(concluidas / total_tarefas * 100, 1) if total_tarefas else 0.0
+
+        result.append({
+            "plano_id": plano.id,
+            "semana_inicio": plano.semana_inicio,
+            "semana_fim": plano.semana_fim,
+            "total_tarefas": total_tarefas,
+            "tarefas_concluidas": concluidas,
+            "percentual_conclusao": percentual,
+            "registros": [r.model_dump() for r in registros],
+        })
+
+    return result
