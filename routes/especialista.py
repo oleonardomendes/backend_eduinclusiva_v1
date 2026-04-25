@@ -577,11 +577,14 @@ def gerar_convite(
     session.commit()
     session.refresh(vinculo)
 
+    _FRONTEND_URL = "https://edumaisinclusiva.com.br"
     return {
         "codigo_convite": codigo,
+        "link_convite": f"{_FRONTEND_URL}/cadastro?tipo=familia&convite={codigo}",
         "instrucoes": (
-            "Compartilhe este código com a família do paciente. "
-            "Eles devem inserir no portal da família em 'Vincular especialista'."
+            "Compartilhe este link com a família do paciente. "
+            "Ao clicar, eles serão direcionados para criar a conta "
+            "e já ficarão vinculados automaticamente."
         ),
         "expira_em": "nunca (válido até ser usado)",
     }

@@ -6,11 +6,15 @@ import os
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
 from groq import Groq
+from sqlmodel import Session, select
+
+from app.database import get_session
+from app.models import VinculoEspecialistaFamilia, PacienteClinico, Usuario as UsuarioModel
 from services.ai_service import _limpar_json_resposta
 
 router = APIRouter()
@@ -91,4 +95,38 @@ Responda APENAS com JSON válido:
             "Esta é uma prévia gratuita. "
             "Cadastre-se para gerar atividades completas personalizadas para seu filho."
         ),
+    }
+
+
+# =========================================================
+# GET /convite/{codigo} — informações públicas do convite
+# =========================================================
+
+@router.get("/convite/{codigo}")
+def info_convite(codigo: str, session: Session = Depends(get_session)):
+    vinculo = session.exec(
+        select(VinculoEspecialistaFamilia).where(
+            VinculoEspecialistaFamilia.codigo_convite == codigo
+        )
+    ).first()
+
+    if not vinculo:
+        raise HTTPException(status_code=404, detail="Código inválido.")
+    if vinculo.status != "pendente":
+        raise HTTPException(status_code=400, detail="Convite já utilizado.")
+
+    especialista = session.get(UsuarioModel, vinculo.especialista_id)
+    paciente = session.get(PacienteClinico, vinculo.paciente_id)
+
+    return {
+        "valido": True,
+        "codigo": codigo,
+        "especialista": {
+            "nome": especialista.nome if especialista else None,
+        },
+        "paciente": {
+            "nome": paciente.nome if paciente else None,
+            "condicao": paciente.condicao if paciente else None,
+            "grau": paciente.grau if paciente else None,
+        },
     }

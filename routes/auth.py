@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 from passlib.context import CryptContext
 
 from app.database import get_session
-from app.models import Usuario
+from app.models import Usuario, FilhoPublico, VinculoEspecialistaFamilia, PacienteClinico
 
 router = APIRouter()
 
@@ -41,6 +41,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     senha: str
     papel: str = "professor"
+    codigo_convite: Optional[str] = None
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -146,6 +147,46 @@ def register_user(payload: RegisterRequest, session: Session = Depends(get_sessi
     session.add(novo_usuario)
     session.commit()
     session.refresh(novo_usuario)
+
+    # Processa convite de especialista se fornecido
+    if payload.codigo_convite and role == "familia":
+        vinculo = session.exec(
+            select(VinculoEspecialistaFamilia).where(
+                VinculoEspecialistaFamilia.codigo_convite == payload.codigo_convite
+            )
+        ).first()
+        if vinculo and vinculo.status == "pendente":
+            paciente = session.get(PacienteClinico, vinculo.paciente_id)
+
+            # a) Cria FilhoPublico com dados do paciente
+            novo_filho = FilhoPublico(
+                responsavel_id=novo_usuario.id,
+                nome=paciente.nome if paciente else payload.nome,
+                idade=paciente.idade if paciente else None,
+                condicao=paciente.condicao if paciente else None,
+                grau_necessidade=paciente.grau if paciente else None,
+                estilo_aprendizagem=paciente.estilo_aprendizagem if paciente else None,
+                observacoes=paciente.observacoes if paciente else None,
+                escola=paciente.escola if paciente else None,
+                serie=paciente.serie if paciente else None,
+            )
+            session.add(novo_filho)
+            session.commit()
+            session.refresh(novo_filho)
+
+            # b) Ativa o vínculo
+            vinculo.filho_publico_id = novo_filho.id
+            vinculo.responsavel_id = novo_usuario.id
+            vinculo.status = "ativo"
+            vinculo.aceito_em = datetime.utcnow()
+            session.add(vinculo)
+
+            # c) Sincroniza PacienteClinico
+            if paciente:
+                paciente.filho_publico_id = novo_filho.id
+                session.add(paciente)
+
+            session.commit()
 
     # Gera token pós-registro (login automático)
     token = create_access_token(
