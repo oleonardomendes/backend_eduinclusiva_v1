@@ -848,14 +848,50 @@ def registrar_tarefa(
 # POST /vincular-especialista/ — aceitar convite
 # =========================================================
 
-class VinculoRequest(BaseModel):
+class VincularEspecialistaRequest(BaseModel):
     codigo_convite: str
-    filho_id: int
+    filho_id: Optional[int] = None
 
+
+# =========================================================
+# Helper interno — ativa o vínculo e sincroniza o paciente
+# =========================================================
+
+def _ativar_vinculo(
+    vinculo: VinculoEspecialistaFamilia,
+    filho: FilhoPublico,
+    paciente,
+    current_user: Usuario,
+    session: Session,
+) -> dict:
+    vinculo.filho_publico_id = filho.id
+    vinculo.responsavel_id = current_user.id
+    vinculo.status = "ativo"
+    vinculo.aceito_em = datetime.utcnow()
+    session.add(vinculo)
+
+    if paciente:
+        paciente.filho_publico_id = filho.id
+        session.add(paciente)
+
+    session.commit()
+    session.refresh(vinculo)
+
+    especialista = session.get(UsuarioModel, vinculo.especialista_id)
+    return {
+        "mensagem": "Vínculo criado com sucesso!",
+        "especialista": especialista.nome if especialista else None,
+        "paciente": paciente.nome if paciente else None,
+    }
+
+
+# =========================================================
+# POST /vincular-especialista/ — iniciar vínculo via código
+# =========================================================
 
 @router.post("/vincular-especialista/", status_code=201)
 def vincular_especialista(
-    body: VinculoRequest,
+    body: VincularEspecialistaRequest,
     session: Session = Depends(get_session),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -872,32 +908,80 @@ def vincular_especialista(
     if vinculo.status != "pendente":
         raise HTTPException(status_code=400, detail="Código já utilizado.")
 
+    paciente = session.get(PacienteClinico, vinculo.paciente_id)
+
+    filhos = session.exec(
+        select(FilhoPublico).where(FilhoPublico.responsavel_id == current_user.id)
+    ).all()
+
+    if not filhos:
+        raise HTTPException(
+            status_code=422,
+            detail="Cadastre ao menos um filho antes de vincular um especialista.",
+        )
+
+    # filho_id fornecido → confirmar diretamente
+    if body.filho_id is not None:
+        filho = next((f for f in filhos if f.id == body.filho_id), None)
+        if not filho:
+            raise HTTPException(status_code=403, detail="Acesso negado a este filho.")
+        return _ativar_vinculo(vinculo, filho, paciente, current_user, session)
+
+    # filho único → vínculo automático
+    if len(filhos) == 1:
+        return _ativar_vinculo(vinculo, filhos[0], paciente, current_user, session)
+
+    # múltiplos filhos → retorna lista para o frontend escolher
+    return {
+        "requer_selecao": True,
+        "paciente": {
+            "nome": paciente.nome if paciente else None,
+            "condicao": paciente.condicao if paciente else None,
+            "grau": paciente.grau if paciente else None,
+        },
+        "filhos_disponiveis": [
+            {"id": f.id, "nome": f.nome, "condicao": f.condicao}
+            for f in filhos
+        ],
+        "codigo_convite": body.codigo_convite,
+    }
+
+
+# =========================================================
+# POST /vincular-especialista/confirmar/ — confirmar filho selecionado
+# =========================================================
+
+@router.post("/vincular-especialista/confirmar/", status_code=201)
+def confirmar_vinculo(
+    body: VincularEspecialistaRequest,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_familia(current_user)
+
+    if body.filho_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="filho_id é obrigatório para confirmar o vínculo.",
+        )
+
+    vinculo = session.exec(
+        select(VinculoEspecialistaFamilia).where(
+            VinculoEspecialistaFamilia.codigo_convite == body.codigo_convite
+        )
+    ).first()
+
+    if not vinculo:
+        raise HTTPException(status_code=404, detail="Código inválido.")
+    if vinculo.status != "pendente":
+        raise HTTPException(status_code=400, detail="Código já utilizado.")
+
     filho = session.get(FilhoPublico, body.filho_id)
     if not filho or filho.responsavel_id != current_user.id:
         raise HTTPException(status_code=403, detail="Acesso negado a este filho.")
 
-    # Ativa o vínculo
-    vinculo.filho_publico_id = body.filho_id
-    vinculo.responsavel_id = current_user.id
-    vinculo.status = "ativo"
-    vinculo.aceito_em = datetime.utcnow()
-    session.add(vinculo)
-
-    # Sincroniza PacienteClinico com o FilhoPublico
     paciente = session.get(PacienteClinico, vinculo.paciente_id)
-    if paciente:
-        paciente.filho_publico_id = body.filho_id
-        session.add(paciente)
-
-    session.commit()
-    session.refresh(vinculo)
-
-    especialista = session.get(UsuarioModel, vinculo.especialista_id)
-    return {
-        "mensagem": "Vínculo criado com sucesso!",
-        "especialista": especialista.nome if especialista else None,
-        "paciente": paciente.nome if paciente else None,
-    }
+    return _ativar_vinculo(vinculo, filho, paciente, current_user, session)
 
 
 # =========================================================
