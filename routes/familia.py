@@ -773,15 +773,47 @@ def planos_prescritos(
 
     result = []
     for p in planos:
-        d = p.model_dump()
         try:
-            d["tarefas"] = json.loads(p.tarefas)
+            tarefas = json.loads(p.tarefas)
         except (json.JSONDecodeError, TypeError):
-            d["tarefas"] = []
+            tarefas = []
+
+        registros = session.exec(
+            select(RegistroPlanoFamilia).where(
+                RegistroPlanoFamilia.plano_id == p.id
+            )
+        ).all()
+
+        total_tarefas = len(tarefas)
+        concluidas = sum(1 for r in registros if r.concluiu)
+        percentual = round(concluidas / total_tarefas * 100, 1) if total_tarefas else 0.0
+
         paciente = pacientes.get(p.paciente_id)
-        d["paciente_nome"] = paciente.nome if paciente else None
-        d["especialista_nome"] = especialistas.get(p.especialista_id)
-        result.append(d)
+        result.append({
+            "id": p.id,
+            "semana_inicio": p.semana_inicio,
+            "semana_fim": p.semana_fim,
+            "tarefas": tarefas,
+            "orientacoes_gerais": p.orientacoes_gerais,
+            "paciente": {
+                "nome": paciente.nome if paciente else None,
+                "condicao": paciente.condicao if paciente else None,
+                "grau": paciente.grau if paciente else None,
+            },
+            "especialista": {
+                "nome": especialistas.get(p.especialista_id),
+            },
+            "registros": [
+                {
+                    "tarefa_index": r.tarefa_index,
+                    "concluiu": r.concluiu,
+                    "humor": r.humor,
+                    "observacao": r.observacao,
+                }
+                for r in registros
+            ],
+            "percentual_conclusao": percentual,
+        })
     return result
 
 
@@ -829,15 +861,30 @@ def registrar_tarefa(
     if tarefa_index < 0 or tarefa_index >= len(tarefas):
         raise HTTPException(status_code=422, detail="Índice de tarefa inválido.")
 
-    registro = RegistroPlanoFamilia(
-        plano_id=plano_id,
-        paciente_id=plano.paciente_id,
-        responsavel_id=current_user.id,
-        tarefa_index=tarefa_index,
-        concluiu=body.concluiu,
-        humor=body.humor,
-        observacao=body.observacao,
-    )
+    # Upsert por (plano_id, tarefa_index, responsavel_id)
+    registro = session.exec(
+        select(RegistroPlanoFamilia).where(
+            RegistroPlanoFamilia.plano_id == plano_id,
+            RegistroPlanoFamilia.tarefa_index == tarefa_index,
+            RegistroPlanoFamilia.responsavel_id == current_user.id,
+        )
+    ).first()
+
+    if registro:
+        registro.concluiu = body.concluiu
+        registro.humor = body.humor
+        registro.observacao = body.observacao
+    else:
+        registro = RegistroPlanoFamilia(
+            plano_id=plano_id,
+            paciente_id=plano.paciente_id,
+            responsavel_id=current_user.id,
+            tarefa_index=tarefa_index,
+            concluiu=body.concluiu,
+            humor=body.humor,
+            observacao=body.observacao,
+        )
+
     session.add(registro)
     session.commit()
     session.refresh(registro)

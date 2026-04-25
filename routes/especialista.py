@@ -635,10 +635,18 @@ def registros_familia(
     _verificar_acesso_paciente(paciente_id, current_user, session)
 
     planos = session.exec(
-        select(PlanoSemanal).where(PlanoSemanal.paciente_id == paciente_id)
+        select(PlanoSemanal)
+        .where(
+            PlanoSemanal.paciente_id == paciente_id,
+            PlanoSemanal.enviado_familia == True,  # noqa: E712
+        )
+        .order_by(PlanoSemanal.semana_inicio.desc())  # type: ignore[attr-defined]
     ).all()
 
-    result = []
+    total_tarefas_enviadas = 0
+    total_tarefas_concluidas = 0
+    planos_result = []
+
     for plano in planos:
         registros = session.exec(
             select(RegistroPlanoFamilia).where(
@@ -651,18 +659,44 @@ def registros_familia(
         except (json.JSONDecodeError, TypeError):
             tarefas = []
 
-        total_tarefas = len(tarefas)
-        concluidas = sum(1 for r in registros if r.concluiu)
-        percentual = round(concluidas / total_tarefas * 100, 1) if total_tarefas else 0.0
+        total_plano = len(tarefas)
+        concluidas_plano = sum(1 for r in registros if r.concluiu)
+        percentual = round(concluidas_plano / total_plano * 100, 1) if total_plano else 0.0
 
-        result.append({
-            "plano_id": plano.id,
+        total_tarefas_enviadas += total_plano
+        total_tarefas_concluidas += concluidas_plano
+
+        planos_result.append({
+            "id": plano.id,
             "semana_inicio": plano.semana_inicio,
             "semana_fim": plano.semana_fim,
-            "total_tarefas": total_tarefas,
-            "tarefas_concluidas": concluidas,
+            "tarefas": tarefas,
+            "enviado_em": plano.enviado_em,
             "percentual_conclusao": percentual,
-            "registros": [r.model_dump() for r in registros],
+            "registros": [
+                {
+                    "tarefa_index": r.tarefa_index,
+                    "tarefa_titulo": (
+                        tarefas[r.tarefa_index].get("titulo")
+                        if r.tarefa_index < len(tarefas) else None
+                    ),
+                    "concluiu": r.concluiu,
+                    "humor": r.humor,
+                    "observacao": r.observacao,
+                    "criado_em": r.criado_em,
+                }
+                for r in registros
+            ],
         })
 
-    return result
+    engajamento = (
+        round(total_tarefas_concluidas / total_tarefas_enviadas * 100, 1)
+        if total_tarefas_enviadas else 0.0
+    )
+
+    return {
+        "planos": planos_result,
+        "total_tarefas_enviadas": total_tarefas_enviadas,
+        "total_tarefas_concluidas": total_tarefas_concluidas,
+        "engajamento_geral": engajamento,
+    }
