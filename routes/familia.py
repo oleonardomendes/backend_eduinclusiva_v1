@@ -843,14 +843,15 @@ def registrar_tarefa(
     if not plano.enviado_familia:
         raise HTTPException(status_code=403, detail="Plano não disponível para a família.")
 
-    # Verifica que o responsável tem acesso ao paciente deste plano
-    filhos = session.exec(
-        select(FilhoPublico).where(FilhoPublico.responsavel_id == current_user.id)
-    ).all()
-    filho_ids = [f.id for f in filhos]
-
-    paciente = session.get(PacienteClinico, plano.paciente_id)
-    if not paciente or paciente.filho_publico_id not in filho_ids:
+    # Verifica acesso via vínculo ativo
+    vinculo = session.exec(
+        select(VinculoEspecialistaFamilia).where(
+            VinculoEspecialistaFamilia.paciente_id == plano.paciente_id,
+            VinculoEspecialistaFamilia.responsavel_id == current_user.id,
+            VinculoEspecialistaFamilia.status == "ativo",
+        )
+    ).first()
+    if not vinculo:
         raise HTTPException(status_code=403, detail="Acesso negado a este plano.")
 
     try:
