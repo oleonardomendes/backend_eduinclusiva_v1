@@ -446,6 +446,59 @@ class AvaliacaoPsicopedagogia(SQLModel, table=True):
 
 
 # =========================================================
+# 🗣️ Módulo Clínico — Avaliação Fonoaudiologia
+# =========================================================
+class AvaliacaoFono(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
+    especialista_id: int = Field(foreign_key="usuario.id", index=True)
+    data_avaliacao: date
+
+    # Linguagem expressiva
+    linguagem_expressiva: Optional[str] = None       # nao_verbal|sons|palavras_isoladas|duas_palavras|frases_simples|frases_complexas
+    linguagem_expressiva_obs: Optional[str] = None
+
+    # Linguagem receptiva
+    linguagem_receptiva: Optional[str] = None        # minima|basica|adequada|boa
+    linguagem_receptiva_obs: Optional[str] = None
+
+    # Articulação
+    articulacao: Optional[str] = None               # muito_comprometida|comprometida|levemente_comprometida|adequada
+    articulacao_obs: Optional[str] = None
+
+    # Vocabulário
+    vocabulario: Optional[str] = None              # muito_reduzido|reduzido|adequado|amplo
+    vocabulario_obs: Optional[str] = None
+
+    # Fluência
+    fluencia: Optional[str] = None                 # muito_comprometida|comprometida|adequada
+    fluencia_obs: Optional[str] = None
+
+    # Pragmática
+    pragmatica: Optional[str] = None               # muito_comprometida|comprometida|em_desenvolvimento|adequada
+    pragmatica_obs: Optional[str] = None
+
+    # Qualidade vocal
+    qualidade_vocal: Optional[str] = None          # alterada|levemente_alterada|adequada
+    qualidade_vocal_obs: Optional[str] = None
+
+    # Deglutição
+    degluticao: Optional[str] = None               # comprometida|levemente_comprometida|adequada
+    degluticao_obs: Optional[str] = None
+
+    # Comunicação alternativa
+    usa_comunicacao_alternativa: Optional[bool] = None
+    tipo_comunicacao_alternativa: Optional[str] = None  # PECS|prancha|aplicativo|libras|outro
+    comunicacao_alternativa_obs: Optional[str] = None
+
+    # Fonemas com dificuldade (JSON list)
+    fonemas_dificuldade: Optional[str] = None
+
+    observacoes_gerais: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):

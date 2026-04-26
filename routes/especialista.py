@@ -26,6 +26,7 @@ from app.models import (
     VinculoEspecialistaFamilia,
     AvaliacaoPsicomotricidade,
     AvaliacaoPsicopedagogia,
+    AvaliacaoFono,
     FilhoPublico,
     Aluno,
     Usuario as UsuarioModel,
@@ -775,6 +776,42 @@ class GerarAtividadePsicopedagogiaRequest(BaseModel):
 
 
 # =========================================================
+# Fono — Schemas
+# =========================================================
+
+class AvaliacaoFonoCreate(BaseModel):
+    data_avaliacao: date
+    linguagem_expressiva: Optional[str] = None
+    linguagem_expressiva_obs: Optional[str] = None
+    linguagem_receptiva: Optional[str] = None
+    linguagem_receptiva_obs: Optional[str] = None
+    articulacao: Optional[str] = None
+    articulacao_obs: Optional[str] = None
+    vocabulario: Optional[str] = None
+    vocabulario_obs: Optional[str] = None
+    fluencia: Optional[str] = None
+    fluencia_obs: Optional[str] = None
+    pragmatica: Optional[str] = None
+    pragmatica_obs: Optional[str] = None
+    qualidade_vocal: Optional[str] = None
+    qualidade_vocal_obs: Optional[str] = None
+    degluticao: Optional[str] = None
+    degluticao_obs: Optional[str] = None
+    usa_comunicacao_alternativa: Optional[bool] = None
+    tipo_comunicacao_alternativa: Optional[str] = None
+    comunicacao_alternativa_obs: Optional[str] = None
+    fonemas_dificuldade: Optional[str] = None
+    observacoes_gerais: Optional[str] = None
+
+
+class GerarAtividadeFonoRequest(BaseModel):
+    area_foco: str   # linguagem_expressiva|linguagem_receptiva|articulacao|vocabulario|pragmatica|comunicacao_alternativa
+    nivel_atual: str
+    duracao_minutos: int = 15
+    observacoes: Optional[str] = None
+
+
+# =========================================================
 # Psicomotricidade — Helper de tendência
 # =========================================================
 
@@ -1226,6 +1263,256 @@ def gerar_atividade_psicopedagogia(
     return {
         "fonte": resultado["fonte"],
         "atividade": resultado["atividade"],
+        "area_foco": dados.area_foco,
+        "nivel_atual": dados.nivel_atual,
+    }
+
+
+# =========================================================
+# Fono — Helpers de tendência
+# =========================================================
+
+_NIVEL_VALOR_FONO_EXPRESSIVA = {
+    "nao_verbal": 1,
+    "sons": 2,
+    "palavras_isoladas": 3,
+    "duas_palavras": 4,
+    "frases_simples": 5,
+    "frases_complexas": 6,
+}
+
+_NIVEL_VALOR_FONO_GERAL = {
+    "muito_comprometida": 1,
+    "comprometida": 2,
+    "levemente_comprometida": 3,
+    "em_desenvolvimento": 3,
+    "minima": 1,
+    "basica": 2,
+    "adequada": 4,
+    "boa": 5,
+}
+
+_NIVEL_VALOR_VOCABULARIO_FONO = {
+    "muito_reduzido": 1,
+    "reduzido": 2,
+    "adequado": 3,
+    "amplo": 4,
+}
+
+_CAMPOS_FONO_EXPRESSIVA = {"linguagem_expressiva"}
+_CAMPOS_FONO_VOCABULARIO = {"vocabulario"}
+
+
+def _tendencia_habilidade_fono(campo: str, valores: list) -> str:
+    if campo in _CAMPOS_FONO_EXPRESSIVA:
+        mapa = _NIVEL_VALOR_FONO_EXPRESSIVA
+    elif campo in _CAMPOS_FONO_VOCABULARIO:
+        mapa = _NIVEL_VALOR_VOCABULARIO_FONO
+    else:
+        mapa = _NIVEL_VALOR_FONO_GERAL
+    numeros = [mapa[v] for v in valores if v in mapa]
+    if len(numeros) < 2:
+        return "estavel"
+    if numeros[-1] > numeros[0]:
+        return "melhorando"
+    if numeros[-1] < numeros[0]:
+        return "precisa_atencao"
+    return "estavel"
+
+
+# =========================================================
+# POST /pacientes/{id}/fono/avaliacao/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/fono/avaliacao/", status_code=201)
+def criar_avaliacao_fono(
+    paciente_id: int,
+    dados: AvaliacaoFonoCreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    avaliacao = AvaliacaoFono(
+        paciente_id=paciente_id,
+        especialista_id=current_user.id,
+        **dados.model_dump(),
+    )
+    session.add(avaliacao)
+    session.commit()
+    session.refresh(avaliacao)
+    return avaliacao
+
+
+# =========================================================
+# GET /pacientes/{id}/fono/avaliacao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/fono/avaliacao/")
+def listar_avaliacoes_fono(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    return session.exec(
+        select(AvaliacaoFono)
+        .where(AvaliacaoFono.paciente_id == paciente_id)
+        .order_by(AvaliacaoFono.data_avaliacao.desc())  # type: ignore[attr-defined]
+    ).all()
+
+
+# =========================================================
+# GET /pacientes/{id}/fono/evolucao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/fono/evolucao/")
+def evolucao_fono(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    avaliacoes = session.exec(
+        select(AvaliacaoFono)
+        .where(AvaliacaoFono.paciente_id == paciente_id)
+        .order_by(AvaliacaoFono.data_avaliacao.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    sessoes = session.exec(
+        select(SessaoClinica)
+        .where(
+            SessaoClinica.paciente_id == paciente_id,
+            SessaoClinica.especialidade == "fono",
+        )
+        .order_by(SessaoClinica.data_sessao.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    _HABILIDADES_FONO = [
+        "linguagem_expressiva",
+        "linguagem_receptiva",
+        "articulacao",
+        "vocabulario",
+        "fluencia",
+        "pragmatica",
+    ]
+
+    habilidades: dict = {}
+    for hab in _HABILIDADES_FONO:
+        historico = [
+            {"data": str(a.data_avaliacao), "valor": getattr(a, hab)}
+            for a in avaliacoes
+            if getattr(a, hab)
+        ]
+        valores = [h["valor"] for h in historico]
+        habilidades[hab] = {
+            "atual": valores[-1] if valores else None,
+            "historico": historico,
+            "tendencia": _tendencia_habilidade_fono(hab, valores),
+        }
+
+    usa_ca = avaliacoes[-1].usa_comunicacao_alternativa if avaliacoes else None
+
+    relatorio_ia = None
+    if avaliacoes or sessoes:
+        resumo_sessoes = "\n".join(
+            f"- {s.data_sessao}: funcionou={s.o_que_funcionou or 'não registrado'}"
+            for s in sessoes[-10:]
+        ) if sessoes else "Nenhuma sessão registrada ainda."
+
+        habilidades_atuais = "\n".join(
+            f"- {hab.replace('_', ' ').title()}: "
+            f"{habilidades[hab]['atual'] or 'não avaliado'} "
+            f"({habilidades[hab]['tendencia']})"
+            for hab in _HABILIDADES_FONO
+        )
+
+        prompt = f"""Você é um fonoaudiólogo analisando a evolução de {paciente.nome} ({paciente.idade or '?'} anos, {paciente.condicao or 'necessidade especial'} {paciente.grau or ''}).
+
+Dados das últimas sessões de fonoaudiologia:
+{resumo_sessoes}
+
+Habilidades de comunicação atuais:
+{habilidades_atuais}
+- Usa comunicação alternativa: {"sim" if usa_ca else "não" if usa_ca is False else "não informado"}
+
+Gere um relatório fonoaudiológico breve com:
+1. Pontos de progresso observados
+2. Áreas que precisam de atenção
+3. Sugestões para as próximas sessões
+4. Orientações práticas para a família
+
+Responda em JSON:
+{{"pontos_positivos": ["string"], "areas_atencao": ["string"], "sugestoes_sessao": ["string"], "orientacoes_familia": ["string"], "resumo": "string"}}"""
+
+        api_key = os.getenv("GROQ_API_KEY")
+        if api_key:
+            try:
+                client = Groq(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.5,
+                )
+                raw = _limpar_json_resposta(response.choices[0].message.content)
+                relatorio_ia = json.loads(raw)
+            except Exception as e:
+                logger.error(f"Groq fono evolução: {e}")
+
+    return {
+        "total_sessoes": len(sessoes),
+        "total_avaliacoes": len(avaliacoes),
+        "habilidades": habilidades,
+        "relatorio_ia": relatorio_ia,
+    }
+
+
+# =========================================================
+# POST /pacientes/{id}/fono/gerar-atividade/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/fono/gerar-atividade/", status_code=201)
+def gerar_atividade_fono(
+    paciente_id: int,
+    dados: GerarAtividadeFonoRequest,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    area_label = dados.area_foco.replace("_", " ").title()
+    parametros = {
+        "titulo": f"Atividade de Fonoaudiologia — {area_label}",
+        "disciplina": "Fonoaudiologia",
+        "tipo_atividade": "fono",
+        "nivel_dificuldade": dados.nivel_atual,
+        "duracao_minutos": dados.duracao_minutos,
+        "descricao": (
+            f"Área de foco: {area_label}. "
+            f"Nível atual: {dados.nivel_atual}. "
+            f"{dados.observacoes or ''}"
+        ).strip(),
+    }
+
+    try:
+        resultado_fono = gerar_atividade_clinica(
+            paciente=paciente,
+            especialista_id=current_user.id,
+            parametros=parametros,
+            session=session,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar atividade: {e}")
+
+    return {
+        "fonte": resultado_fono["fonte"],
+        "atividade": resultado_fono["atividade"],
         "area_foco": dados.area_foco,
         "nivel_atual": dados.nivel_atual,
     }
