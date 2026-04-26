@@ -673,6 +673,94 @@ class RegistroComportamentoABA(SQLModel, table=True):
 
 
 # =========================================================
+# 🥗 Módulo Clínico — Avaliação Nutrição
+# =========================================================
+class AvaliacaoNutricao(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
+    especialista_id: int = Field(foreign_key="usuario.id", index=True)
+    data_avaliacao: date
+
+    estado_nutricional: Optional[str] = None         # desnutricao|abaixo_peso|adequado|sobrepeso|obesidade
+    estado_nutricional_obs: Optional[str] = None
+
+    peso_kg: Optional[float] = None
+    altura_cm: Optional[float] = None
+    imc: Optional[float] = None                      # calculado automaticamente
+
+    seletividade_alimentar: Optional[str] = None     # severa|moderada|leve|sem_seletividade
+    seletividade_alimentar_obs: Optional[str] = None
+
+    alimentos_aceitos: Optional[str] = None          # JSON list
+    alimentos_recusados: Optional[str] = None        # JSON list
+
+    textura_preferida: Optional[str] = None          # liquido|pastoso|solido_macio|solido|crocante|variada
+
+    comportamento_alimentar: Optional[str] = None    # muito_dificil|dificil|regular|adequado
+    comportamento_alimentar_obs: Optional[str] = None
+
+    hidratacao: Optional[str] = None                 # insuficiente|regular|adequada
+    hidratacao_obs: Optional[str] = None
+
+    suplementacao: Optional[str] = None              # JSON list
+    alergias_alimentares: Optional[str] = None       # JSON list
+
+    funcionamento_intestinal: Optional[str] = None   # constipacao|diarreia_frequente|irregular|adequado
+    funcionamento_intestinal_obs: Optional[str] = None
+
+    numero_refeicoes_dia: Optional[int] = None
+    horarios_refeicoes: Optional[str] = None         # JSON list
+
+    observacoes_gerais: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
+# 🦵 Módulo Clínico — Avaliação Fisioterapia
+# =========================================================
+class AvaliacaoFisioterapia(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
+    especialista_id: int = Field(foreign_key="usuario.id", index=True)
+    data_avaliacao: date
+
+    tonus_muscular: Optional[str] = None             # hipotonia_severa|hipotonia_moderada|hipotonia_leve|normal|hipertonia_leve|hipertonia_moderada|hipertonia_severa
+    tonus_muscular_obs: Optional[str] = None
+
+    forca_muscular: Optional[str] = None             # muito_reduzida|reduzida|adequada|boa
+    forca_muscular_obs: Optional[str] = None
+
+    amplitude_movimento: Optional[str] = None        # muito_limitada|limitada|adequada
+    amplitude_movimento_obs: Optional[str] = None
+
+    postura: Optional[str] = None                    # muito_comprometida|comprometida|levemente_comprometida|adequada
+    postura_obs: Optional[str] = None
+
+    marcha: Optional[str] = None                     # nao_deambula|com_auxilio_total|com_auxilio_parcial|independente_alterada|independente_adequada
+    marcha_obs: Optional[str] = None
+
+    equilibrio_estatico: Optional[str] = None        # ausente|precario|regular|adequado
+    equilibrio_estatico_obs: Optional[str] = None
+
+    equilibrio_dinamico: Optional[str] = None
+    equilibrio_dinamico_obs: Optional[str] = None
+
+    coordenacao_motora: Optional[str] = None         # muito_comprometida|comprometida|levemente_comprometida|adequada
+    coordenacao_motora_obs: Optional[str] = None
+
+    sensibilidade: Optional[str] = None              # alterada|levemente_alterada|adequada
+    sensibilidade_obs: Optional[str] = None
+
+    nivel_dor: Optional[int] = None                  # 0 a 10
+    localizacao_dor: Optional[str] = None
+
+    recursos_utilizados: Optional[str] = None        # JSON list: hidroterapia|eletroterapia|cinesioterapia|RPG|pilates|bobath|outro
+
+    observacoes_gerais: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):

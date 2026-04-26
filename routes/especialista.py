@@ -31,6 +31,8 @@ from app.models import (
     AvaliacaoPsicologia,
     AvaliacaoABA,
     RegistroComportamentoABA,
+    AvaliacaoNutricao,
+    AvaliacaoFisioterapia,
     FilhoPublico,
     Aluno,
     Usuario as UsuarioModel,
@@ -930,6 +932,78 @@ class GerarAtividadeABARequest(BaseModel):
     taxa_acerto_atual: float
     tipo_auxilio_atual: str
     duracao_minutos: int = 15
+    observacoes: Optional[str] = None
+
+
+# =========================================================
+# Nutrição — Schemas
+# =========================================================
+
+class AvaliacaoNutricaoCreate(BaseModel):
+    data_avaliacao: date
+    estado_nutricional: Optional[str] = None
+    estado_nutricional_obs: Optional[str] = None
+    peso_kg: Optional[float] = None
+    altura_cm: Optional[float] = None
+    seletividade_alimentar: Optional[str] = None
+    seletividade_alimentar_obs: Optional[str] = None
+    alimentos_aceitos: Optional[str] = None
+    alimentos_recusados: Optional[str] = None
+    textura_preferida: Optional[str] = None
+    comportamento_alimentar: Optional[str] = None
+    comportamento_alimentar_obs: Optional[str] = None
+    hidratacao: Optional[str] = None
+    hidratacao_obs: Optional[str] = None
+    suplementacao: Optional[str] = None
+    alergias_alimentares: Optional[str] = None
+    funcionamento_intestinal: Optional[str] = None
+    funcionamento_intestinal_obs: Optional[str] = None
+    numero_refeicoes_dia: Optional[int] = None
+    horarios_refeicoes: Optional[str] = None
+    observacoes_gerais: Optional[str] = None
+
+
+class GerarAtividadeNutricaoRequest(BaseModel):
+    area_foco: str   # seletividade_alimentar|hidratacao|comportamento_alimentar|introducao_alimentos|rotina_alimentar
+    nivel_atual: str
+    duracao_minutos: int = 20
+    observacoes: Optional[str] = None
+
+
+# =========================================================
+# Fisioterapia — Schemas
+# =========================================================
+
+class AvaliacaoFisioterapiaCreate(BaseModel):
+    data_avaliacao: date
+    tonus_muscular: Optional[str] = None
+    tonus_muscular_obs: Optional[str] = None
+    forca_muscular: Optional[str] = None
+    forca_muscular_obs: Optional[str] = None
+    amplitude_movimento: Optional[str] = None
+    amplitude_movimento_obs: Optional[str] = None
+    postura: Optional[str] = None
+    postura_obs: Optional[str] = None
+    marcha: Optional[str] = None
+    marcha_obs: Optional[str] = None
+    equilibrio_estatico: Optional[str] = None
+    equilibrio_estatico_obs: Optional[str] = None
+    equilibrio_dinamico: Optional[str] = None
+    equilibrio_dinamico_obs: Optional[str] = None
+    coordenacao_motora: Optional[str] = None
+    coordenacao_motora_obs: Optional[str] = None
+    sensibilidade: Optional[str] = None
+    sensibilidade_obs: Optional[str] = None
+    nivel_dor: Optional[int] = None
+    localizacao_dor: Optional[str] = None
+    recursos_utilizados: Optional[str] = None
+    observacoes_gerais: Optional[str] = None
+
+
+class GerarAtividadeFisioterapiaRequest(BaseModel):
+    area_foco: str   # tonus_muscular|forca_muscular|marcha|equilibrio|coordenacao_motora|postura|alongamento|respiracao
+    nivel_atual: str
+    duracao_minutos: int = 20
     observacoes: Optional[str] = None
 
 
@@ -2533,4 +2607,545 @@ def gerar_atividade_aba(
         "atividade": resultado_aba["atividade"],
         "comportamento_alvo": dados.comportamento_alvo,
         "taxa_acerto_atual": dados.taxa_acerto_atual,
+    }
+
+
+# =========================================================
+# Nutrição — Helpers de tendência
+# =========================================================
+
+_NIVEL_VALOR_NUTRI_SELET = {
+    "severa": 1,
+    "moderada": 2,
+    "leve": 3,
+    "sem_seletividade": 4,
+}
+
+_NIVEL_VALOR_NUTRI_COMP = {
+    "muito_dificil": 1,
+    "dificil": 2,
+    "regular": 3,
+    "adequado": 4,
+}
+
+_NIVEL_VALOR_NUTRI_HIDRAT = {
+    "insuficiente": 1,
+    "regular": 2,
+    "adequada": 3,
+}
+
+_NIVEL_VALOR_NUTRI_ESTADO = {
+    "desnutricao": 1,
+    "abaixo_peso": 2,
+    "adequado": 3,
+    "sobrepeso": 4,
+    "obesidade": 5,
+}
+
+_CAMPOS_NUTRI_SELET = {"seletividade_alimentar"}
+_CAMPOS_NUTRI_COMP = {"comportamento_alimentar"}
+_CAMPOS_NUTRI_HIDRAT = {"hidratacao"}
+
+
+def _tendencia_habilidade_nutri(campo: str, valores: list) -> str:
+    if campo in _CAMPOS_NUTRI_SELET:
+        mapa = _NIVEL_VALOR_NUTRI_SELET
+    elif campo in _CAMPOS_NUTRI_COMP:
+        mapa = _NIVEL_VALOR_NUTRI_COMP
+    elif campo in _CAMPOS_NUTRI_HIDRAT:
+        mapa = _NIVEL_VALOR_NUTRI_HIDRAT
+    else:
+        # estado_nutricional: melhorando = aproximando de adequado (3)
+        mapa = _NIVEL_VALOR_NUTRI_ESTADO
+    numeros = [mapa[v] for v in valores if v in mapa]
+    if len(numeros) < 2:
+        return "estavel"
+    if campo == "estado_nutricional":
+        # tendência positiva = aproximando do ideal (3)
+        dist_ant = abs(numeros[0] - 3)
+        dist_ult = abs(numeros[-1] - 3)
+        if dist_ult < dist_ant:
+            return "melhorando"
+        if dist_ult > dist_ant:
+            return "precisa_atencao"
+        return "estavel"
+    if numeros[-1] > numeros[0]:
+        return "melhorando"
+    if numeros[-1] < numeros[0]:
+        return "precisa_atencao"
+    return "estavel"
+
+
+# =========================================================
+# POST /pacientes/{id}/nutricao/avaliacao/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/nutricao/avaliacao/", status_code=201)
+def criar_avaliacao_nutricao(
+    paciente_id: int,
+    dados: AvaliacaoNutricaoCreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    dump = dados.model_dump()
+    if dump.get("peso_kg") and dump.get("altura_cm") and dump["altura_cm"] > 0:
+        altura_m = dump["altura_cm"] / 100
+        dump["imc"] = round(dump["peso_kg"] / (altura_m ** 2), 1)
+
+    avaliacao = AvaliacaoNutricao(
+        paciente_id=paciente_id,
+        especialista_id=current_user.id,
+        **dump,
+    )
+    session.add(avaliacao)
+    session.commit()
+    session.refresh(avaliacao)
+    return avaliacao
+
+
+# =========================================================
+# GET /pacientes/{id}/nutricao/avaliacao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/nutricao/avaliacao/")
+def listar_avaliacoes_nutricao(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    return session.exec(
+        select(AvaliacaoNutricao)
+        .where(AvaliacaoNutricao.paciente_id == paciente_id)
+        .order_by(AvaliacaoNutricao.data_avaliacao.desc())  # type: ignore[attr-defined]
+    ).all()
+
+
+# =========================================================
+# GET /pacientes/{id}/nutricao/evolucao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/nutricao/evolucao/")
+def evolucao_nutricao(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    avaliacoes = session.exec(
+        select(AvaliacaoNutricao)
+        .where(AvaliacaoNutricao.paciente_id == paciente_id)
+        .order_by(AvaliacaoNutricao.data_avaliacao.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    sessoes = session.exec(
+        select(SessaoClinica)
+        .where(
+            SessaoClinica.paciente_id == paciente_id,
+            SessaoClinica.especialidade == "nutricao",
+        )
+        .order_by(SessaoClinica.data_sessao.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    _HABILIDADES_NUTRI = [
+        "estado_nutricional",
+        "seletividade_alimentar",
+        "comportamento_alimentar",
+        "hidratacao",
+    ]
+
+    habilidades: dict = {}
+    for hab in _HABILIDADES_NUTRI:
+        historico = [
+            {"data": str(a.data_avaliacao), "valor": getattr(a, hab)}
+            for a in avaliacoes
+            if getattr(a, hab)
+        ]
+        valores = [h["valor"] for h in historico]
+        habilidades[hab] = {
+            "atual": valores[-1] if valores else None,
+            "historico": historico,
+            "tendencia": _tendencia_habilidade_nutri(hab, valores),
+        }
+
+    ultima = avaliacoes[-1] if avaliacoes else None
+    ultima_medicao = None
+    if ultima and (ultima.peso_kg or ultima.altura_cm or ultima.imc):
+        ultima_medicao = {
+            "peso_kg": ultima.peso_kg,
+            "altura_cm": ultima.altura_cm,
+            "imc": ultima.imc,
+            "data": str(ultima.data_avaliacao),
+        }
+
+    relatorio_ia = None
+    if avaliacoes:
+        prompt = f"""Você é um nutricionista especializado em crianças com NEE analisando {paciente.nome} ({paciente.idade or '?'} anos, {paciente.condicao or 'necessidade especial'} {paciente.grau or ''}).
+
+Perfil nutricional atual:
+- Estado nutricional: {habilidades['estado_nutricional']['atual'] or 'não avaliado'} ({habilidades['estado_nutricional']['tendencia']})
+- IMC: {ultima.imc if ultima else 'não avaliado'}
+- Seletividade alimentar: {habilidades['seletividade_alimentar']['atual'] or 'não avaliado'} ({habilidades['seletividade_alimentar']['tendencia']})
+- Comportamento alimentar: {habilidades['comportamento_alimentar']['atual'] or 'não avaliado'} ({habilidades['comportamento_alimentar']['tendencia']})
+- Hidratação: {habilidades['hidratacao']['atual'] or 'não avaliado'} ({habilidades['hidratacao']['tendencia']})
+- Alimentos aceitos: {ultima.alimentos_aceitos or 'não informado'}
+- Alimentos recusados: {ultima.alimentos_recusados or 'não informado'}
+- Alergias: {ultima.alergias_alimentares or 'nenhuma informada'}
+- Funcionamento intestinal: {ultima.funcionamento_intestinal or 'não avaliado'}
+
+Gere um relatório nutricional breve com:
+1. Pontos positivos do perfil alimentar
+2. Riscos nutricionais identificados
+3. Sugestões de intervenção nutricional
+4. Orientações práticas para a família nas refeições
+
+Responda em JSON:
+{{"pontos_positivos": ["string"], "areas_atencao": ["string"], "sugestoes_sessao": ["string"], "orientacoes_familia": ["string"], "resumo": "string"}}"""
+
+        api_key = os.getenv("GROQ_API_KEY")
+        if api_key:
+            try:
+                client = Groq(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.5,
+                )
+                raw = _limpar_json_resposta(response.choices[0].message.content)
+                relatorio_ia = json.loads(raw)
+            except Exception as e:
+                logger.error(f"Groq nutrição evolução: {e}")
+
+    return {
+        "total_sessoes": len(sessoes),
+        "total_avaliacoes": len(avaliacoes),
+        "ultima_medicao": ultima_medicao,
+        "habilidades": habilidades,
+        "relatorio_ia": relatorio_ia,
+    }
+
+
+# =========================================================
+# POST /pacientes/{id}/nutricao/gerar-atividade/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/nutricao/gerar-atividade/", status_code=201)
+def gerar_atividade_nutricao(
+    paciente_id: int,
+    dados: GerarAtividadeNutricaoRequest,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    area_label = dados.area_foco.replace("_", " ").title()
+    parametros = {
+        "titulo": f"Atividade de Nutrição — {area_label}",
+        "disciplina": "Nutrição",
+        "tipo_atividade": "nutricao",
+        "nivel_dificuldade": dados.nivel_atual,
+        "duracao_minutos": dados.duracao_minutos,
+        "descricao": (
+            f"Área de foco: {area_label}. "
+            f"Nível atual: {dados.nivel_atual}. "
+            f"{dados.observacoes or ''}"
+        ).strip(),
+    }
+
+    try:
+        resultado_nutri = gerar_atividade_clinica(
+            paciente=paciente,
+            especialista_id=current_user.id,
+            parametros=parametros,
+            session=session,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar atividade: {e}")
+
+    return {
+        "fonte": resultado_nutri["fonte"],
+        "atividade": resultado_nutri["atividade"],
+        "area_foco": dados.area_foco,
+        "nivel_atual": dados.nivel_atual,
+    }
+
+
+# =========================================================
+# Fisioterapia — Helpers de tendência
+# =========================================================
+
+_NIVEL_VALOR_FISIO_TONUS = {
+    "hipotonia_severa": 1,
+    "hipotonia_moderada": 2,
+    "hipotonia_leve": 3,
+    "normal": 4,
+    "hipertonia_leve": 3,
+    "hipertonia_moderada": 2,
+    "hipertonia_severa": 1,
+}
+
+_NIVEL_VALOR_FISIO_FORCA = {
+    "muito_reduzida": 1,
+    "reduzida": 2,
+    "adequada": 3,
+    "boa": 4,
+}
+
+_NIVEL_VALOR_FISIO_MARCHA = {
+    "nao_deambula": 1,
+    "com_auxilio_total": 2,
+    "com_auxilio_parcial": 3,
+    "independente_alterada": 4,
+    "independente_adequada": 5,
+}
+
+_NIVEL_VALOR_FISIO_EQUILIBRIO = {
+    "ausente": 1,
+    "precario": 2,
+    "regular": 3,
+    "adequado": 4,
+}
+
+_NIVEL_VALOR_FISIO_MOTOR = {
+    "muito_comprometida": 1,
+    "comprometida": 2,
+    "levemente_comprometida": 3,
+    "adequada": 4,
+}
+
+_CAMPOS_FISIO_TONUS = {"tonus_muscular"}
+_CAMPOS_FISIO_FORCA = {"forca_muscular"}
+_CAMPOS_FISIO_MARCHA = {"marcha"}
+_CAMPOS_FISIO_EQUILIBRIO = {"equilibrio_estatico", "equilibrio_dinamico"}
+
+
+def _tendencia_habilidade_fisio(campo: str, valores: list) -> str:
+    if campo in _CAMPOS_FISIO_TONUS:
+        mapa = _NIVEL_VALOR_FISIO_TONUS
+        numeros = [mapa[v] for v in valores if v in mapa]
+        if len(numeros) < 2:
+            return "estavel"
+        # para tônus: aproximar de 4 (normal) é melhorar
+        dist_ant = abs(numeros[0] - 4)
+        dist_ult = abs(numeros[-1] - 4)
+        if dist_ult < dist_ant:
+            return "melhorando"
+        if dist_ult > dist_ant:
+            return "precisa_atencao"
+        return "estavel"
+    if campo in _CAMPOS_FISIO_FORCA:
+        mapa = _NIVEL_VALOR_FISIO_FORCA
+    elif campo in _CAMPOS_FISIO_MARCHA:
+        mapa = _NIVEL_VALOR_FISIO_MARCHA
+    elif campo in _CAMPOS_FISIO_EQUILIBRIO:
+        mapa = _NIVEL_VALOR_FISIO_EQUILIBRIO
+    else:
+        mapa = _NIVEL_VALOR_FISIO_MOTOR
+    numeros = [mapa[v] for v in valores if v in mapa]
+    if len(numeros) < 2:
+        return "estavel"
+    if numeros[-1] > numeros[0]:
+        return "melhorando"
+    if numeros[-1] < numeros[0]:
+        return "precisa_atencao"
+    return "estavel"
+
+
+# =========================================================
+# POST /pacientes/{id}/fisioterapia/avaliacao/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/fisioterapia/avaliacao/", status_code=201)
+def criar_avaliacao_fisioterapia(
+    paciente_id: int,
+    dados: AvaliacaoFisioterapiaCreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    avaliacao = AvaliacaoFisioterapia(
+        paciente_id=paciente_id,
+        especialista_id=current_user.id,
+        **dados.model_dump(),
+    )
+    session.add(avaliacao)
+    session.commit()
+    session.refresh(avaliacao)
+    return avaliacao
+
+
+# =========================================================
+# GET /pacientes/{id}/fisioterapia/avaliacao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/fisioterapia/avaliacao/")
+def listar_avaliacoes_fisioterapia(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    return session.exec(
+        select(AvaliacaoFisioterapia)
+        .where(AvaliacaoFisioterapia.paciente_id == paciente_id)
+        .order_by(AvaliacaoFisioterapia.data_avaliacao.desc())  # type: ignore[attr-defined]
+    ).all()
+
+
+# =========================================================
+# GET /pacientes/{id}/fisioterapia/evolucao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/fisioterapia/evolucao/")
+def evolucao_fisioterapia(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    avaliacoes = session.exec(
+        select(AvaliacaoFisioterapia)
+        .where(AvaliacaoFisioterapia.paciente_id == paciente_id)
+        .order_by(AvaliacaoFisioterapia.data_avaliacao.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    sessoes = session.exec(
+        select(SessaoClinica)
+        .where(
+            SessaoClinica.paciente_id == paciente_id,
+            SessaoClinica.especialidade == "fisioterapia",
+        )
+        .order_by(SessaoClinica.data_sessao.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    _HABILIDADES_FISIO = [
+        "tonus_muscular",
+        "forca_muscular",
+        "marcha",
+        "equilibrio_estatico",
+        "equilibrio_dinamico",
+        "coordenacao_motora",
+        "postura",
+    ]
+
+    habilidades: dict = {}
+    for hab in _HABILIDADES_FISIO:
+        historico = [
+            {"data": str(a.data_avaliacao), "valor": getattr(a, hab)}
+            for a in avaliacoes
+            if getattr(a, hab)
+        ]
+        valores = [h["valor"] for h in historico]
+        habilidades[hab] = {
+            "atual": valores[-1] if valores else None,
+            "historico": historico,
+            "tendencia": _tendencia_habilidade_fisio(hab, valores),
+        }
+
+    ultima = avaliacoes[-1] if avaliacoes else None
+
+    relatorio_ia = None
+    if avaliacoes:
+        habilidades_atuais = "\n".join(
+            f"- {hab.replace('_', ' ').title()}: "
+            f"{habilidades[hab]['atual'] or 'não avaliado'} "
+            f"({habilidades[hab]['tendencia']})"
+            for hab in _HABILIDADES_FISIO
+        )
+
+        prompt = f"""Você é um fisioterapeuta especializado em crianças com NEE analisando {paciente.nome} ({paciente.idade or '?'} anos, {paciente.condicao or 'necessidade especial'} {paciente.grau or ''}).
+
+Perfil motor atual:
+{habilidades_atuais}
+- Nível de dor: {ultima.nivel_dor if ultima and ultima.nivel_dor is not None else 'não avaliado'}/10
+- Recursos utilizados: {ultima.recursos_utilizados if ultima else 'não informado'}
+
+Gere um relatório fisioterapêutico breve com:
+1. Pontos de progresso motor observados
+2. Áreas que precisam de atenção
+3. Sugestões de exercícios e recursos para as próximas sessões
+4. Orientações práticas para a família estimular em casa com segurança
+
+Responda em JSON:
+{{"pontos_positivos": ["string"], "areas_atencao": ["string"], "sugestoes_sessao": ["string"], "orientacoes_familia": ["string"], "resumo": "string"}}"""
+
+        api_key = os.getenv("GROQ_API_KEY")
+        if api_key:
+            try:
+                client = Groq(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.5,
+                )
+                raw = _limpar_json_resposta(response.choices[0].message.content)
+                relatorio_ia = json.loads(raw)
+            except Exception as e:
+                logger.error(f"Groq fisioterapia evolução: {e}")
+
+    return {
+        "total_sessoes": len(sessoes),
+        "total_avaliacoes": len(avaliacoes),
+        "habilidades": habilidades,
+        "relatorio_ia": relatorio_ia,
+    }
+
+
+# =========================================================
+# POST /pacientes/{id}/fisioterapia/gerar-atividade/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/fisioterapia/gerar-atividade/", status_code=201)
+def gerar_atividade_fisioterapia(
+    paciente_id: int,
+    dados: GerarAtividadeFisioterapiaRequest,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    area_label = dados.area_foco.replace("_", " ").title()
+    parametros = {
+        "titulo": f"Atividade de Fisioterapia — {area_label}",
+        "disciplina": "Fisioterapia",
+        "tipo_atividade": "fisioterapia",
+        "nivel_dificuldade": dados.nivel_atual,
+        "duracao_minutos": dados.duracao_minutos,
+        "descricao": (
+            f"Área de foco: {area_label}. "
+            f"Nível atual: {dados.nivel_atual}. "
+            f"{dados.observacoes or ''}"
+        ).strip(),
+    }
+
+    try:
+        resultado_fisio = gerar_atividade_clinica(
+            paciente=paciente,
+            especialista_id=current_user.id,
+            parametros=parametros,
+            session=session,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar atividade: {e}")
+
+    return {
+        "fonte": resultado_fisio["fonte"],
+        "atividade": resultado_fisio["atividade"],
+        "area_foco": dados.area_foco,
+        "nivel_atual": dados.nivel_atual,
     }
