@@ -358,6 +358,49 @@ class VinculoEspecialistaFamilia(SQLModel, table=True):
 
 
 # =========================================================
+# 🏃 Módulo Clínico — Avaliação Psicomotricidade
+# =========================================================
+class AvaliacaoPsicomotricidade(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
+    especialista_id: int = Field(foreign_key="usuario.id", index=True)
+    data_avaliacao: date
+
+    coordenacao_fina: Optional[str] = None
+    coordenacao_fina_obs: Optional[str] = None
+
+    coordenacao_grossa: Optional[str] = None
+    coordenacao_grossa_obs: Optional[str] = None
+
+    equilibrio: Optional[str] = None
+    equilibrio_obs: Optional[str] = None
+
+    lateralidade: Optional[str] = None
+    lateralidade_obs: Optional[str] = None
+
+    esquema_corporal: Optional[str] = None
+    esquema_corporal_obs: Optional[str] = None
+
+    orientacao_espacial: Optional[str] = None
+    orientacao_espacial_obs: Optional[str] = None
+
+    orientacao_temporal: Optional[str] = None
+    orientacao_temporal_obs: Optional[str] = None
+
+    tonus_muscular: Optional[str] = None
+    tonus_muscular_obs: Optional[str] = None
+
+    praxia_global: Optional[str] = None
+    praxia_global_obs: Optional[str] = None
+
+    praxia_fina: Optional[str] = None
+    praxia_fina_obs: Optional[str] = None
+
+    observacoes_gerais: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):

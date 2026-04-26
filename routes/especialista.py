@@ -24,6 +24,7 @@ from app.models import (
     PlanoSemanal,
     RegistroPlanoFamilia,
     VinculoEspecialistaFamilia,
+    AvaliacaoPsicomotricidade,
     FilhoPublico,
     Aluno,
     Usuario as UsuarioModel,
@@ -699,4 +700,252 @@ def registros_familia(
         "total_tarefas_enviadas": total_tarefas_enviadas,
         "total_tarefas_concluidas": total_tarefas_concluidas,
         "engajamento_geral": engajamento,
+    }
+
+
+# =========================================================
+# Psicomotricidade — Schemas
+# =========================================================
+
+class AvaliacaoPsicomotricidadeCreate(BaseModel):
+    data_avaliacao: date
+    coordenacao_fina: Optional[str] = None
+    coordenacao_fina_obs: Optional[str] = None
+    coordenacao_grossa: Optional[str] = None
+    coordenacao_grossa_obs: Optional[str] = None
+    equilibrio: Optional[str] = None
+    equilibrio_obs: Optional[str] = None
+    lateralidade: Optional[str] = None
+    lateralidade_obs: Optional[str] = None
+    esquema_corporal: Optional[str] = None
+    esquema_corporal_obs: Optional[str] = None
+    orientacao_espacial: Optional[str] = None
+    orientacao_espacial_obs: Optional[str] = None
+    orientacao_temporal: Optional[str] = None
+    orientacao_temporal_obs: Optional[str] = None
+    tonus_muscular: Optional[str] = None
+    tonus_muscular_obs: Optional[str] = None
+    praxia_global: Optional[str] = None
+    praxia_global_obs: Optional[str] = None
+    praxia_fina: Optional[str] = None
+    praxia_fina_obs: Optional[str] = None
+    observacoes_gerais: Optional[str] = None
+
+
+class GerarAtividadePsicomotricidadeRequest(BaseModel):
+    area_foco: str
+    nivel_atual: str
+    duracao_minutos: int = 15
+    observacoes: Optional[str] = None
+
+
+# =========================================================
+# Psicomotricidade — Helper de tendência
+# =========================================================
+
+_NIVEL_VALOR = {"emergente": 1, "em_desenvolvimento": 2, "consolidado": 3}
+
+
+def _tendencia_habilidade(valores: list) -> str:
+    numeros = [_NIVEL_VALOR[v] for v in valores if v in _NIVEL_VALOR]
+    if len(numeros) < 2:
+        return "estavel"
+    if numeros[-1] > numeros[0]:
+        return "melhorando"
+    if numeros[-1] < numeros[0]:
+        return "precisa_atencao"
+    return "estavel"
+
+
+# =========================================================
+# POST /pacientes/{id}/psicomotricidade/avaliacao/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/psicomotricidade/avaliacao/", status_code=201)
+def criar_avaliacao_psicomotricidade(
+    paciente_id: int,
+    dados: AvaliacaoPsicomotricidadeCreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    avaliacao = AvaliacaoPsicomotricidade(
+        paciente_id=paciente_id,
+        especialista_id=current_user.id,
+        **dados.model_dump(),
+    )
+    session.add(avaliacao)
+    session.commit()
+    session.refresh(avaliacao)
+    return avaliacao
+
+
+# =========================================================
+# GET /pacientes/{id}/psicomotricidade/avaliacao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/psicomotricidade/avaliacao/")
+def listar_avaliacoes_psicomotricidade(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    return session.exec(
+        select(AvaliacaoPsicomotricidade)
+        .where(AvaliacaoPsicomotricidade.paciente_id == paciente_id)
+        .order_by(AvaliacaoPsicomotricidade.data_avaliacao.desc())  # type: ignore[attr-defined]
+    ).all()
+
+
+# =========================================================
+# GET /pacientes/{id}/psicomotricidade/evolucao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/psicomotricidade/evolucao/")
+def evolucao_psicomotricidade(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    sessoes = session.exec(
+        select(SessaoClinica)
+        .where(
+            SessaoClinica.paciente_id == paciente_id,
+            SessaoClinica.especialidade == "psicomotricidade",
+        )
+        .order_by(SessaoClinica.data_sessao.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    _HABILIDADES = [
+        "coordenacao_fina",
+        "coordenacao_grossa",
+        "equilibrio",
+        "lateralidade",
+        "esquema_corporal",
+    ]
+
+    habilidades: dict = {}
+    for hab in _HABILIDADES:
+        historico = [
+            {"data": str(s.data_sessao), "valor": getattr(s, hab)}
+            for s in sessoes
+            if getattr(s, hab)
+        ]
+        valores = [h["valor"] for h in historico]
+        habilidades[hab] = {
+            "atual": valores[-1] if valores else None,
+            "historico": historico,
+            "tendencia": _tendencia_habilidade(valores),
+        }
+
+    relatorio_ia = None
+    if sessoes:
+        resumo_sessoes = "\n".join(
+            f"- {s.data_sessao}: "
+            f"coord_fina={s.coordenacao_fina or '?'}, "
+            f"coord_grossa={s.coordenacao_grossa or '?'}, "
+            f"equilibrio={s.equilibrio or '?'}, "
+            f"lateralidade={s.lateralidade or '?'}, "
+            f"esquema_corporal={s.esquema_corporal or '?'}, "
+            f"funcionou={s.o_que_funcionou or 'não registrado'}"
+            for s in sessoes[-10:]
+        )
+
+        habilidades_atuais = "\n".join(
+            f"- {hab.replace('_', ' ').title()}: "
+            f"{habilidades[hab]['atual'] or 'não avaliado'} "
+            f"({habilidades[hab]['tendencia']})"
+            for hab in _HABILIDADES
+        )
+
+        prompt = f"""Você é um especialista em psicomotricidade analisando a evolução de {paciente.nome} ({paciente.idade or '?'} anos, {paciente.condicao or 'necessidade especial'} {paciente.grau or ''}).
+
+Dados das últimas {len(sessoes[-10:])} sessões:
+{resumo_sessoes}
+
+Habilidades atuais:
+{habilidades_atuais}
+
+Gere um relatório clínico breve com:
+1. Pontos de progresso observados
+2. Áreas que precisam de atenção
+3. Sugestões para as próximas sessões
+4. Orientações práticas para a família
+
+Responda em JSON:
+{{"pontos_positivos": ["string"], "areas_atencao": ["string"], "sugestoes_sessao": ["string"], "orientacoes_familia": ["string"], "resumo": "string"}}"""
+
+        api_key = os.getenv("GROQ_API_KEY")
+        if api_key:
+            try:
+                client = Groq(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.5,
+                )
+                raw = _limpar_json_resposta(response.choices[0].message.content)
+                relatorio_ia = json.loads(raw)
+            except Exception as e:
+                logger.error(f"Groq psicomotricidade evolução: {e}")
+
+    return {
+        "total_sessoes": len(sessoes),
+        "habilidades": habilidades,
+        "relatorio_ia": relatorio_ia,
+    }
+
+
+# =========================================================
+# POST /pacientes/{id}/psicomotricidade/gerar-atividade/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/psicomotricidade/gerar-atividade/", status_code=201)
+def gerar_atividade_psicomotricidade(
+    paciente_id: int,
+    dados: GerarAtividadePsicomotricidadeRequest,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    area_label = dados.area_foco.replace("_", " ").title()
+    parametros = {
+        "titulo": f"Atividade de Psicomotricidade — {area_label}",
+        "disciplina": "Psicomotricidade",
+        "tipo_atividade": "psicomotricidade",
+        "nivel_dificuldade": dados.nivel_atual,
+        "duracao_minutos": dados.duracao_minutos,
+        "descricao": (
+            f"Área de foco: {area_label}. "
+            f"Nível atual: {dados.nivel_atual}. "
+            f"{dados.observacoes or ''}"
+        ).strip(),
+    }
+
+    aluno_id = paciente.filho_publico_id or paciente_id
+    try:
+        resultado = buscar_ou_gerar_atividade(
+            aluno_id=aluno_id,
+            professor_id=current_user.id,
+            parametros=parametros,
+            session=session,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar atividade: {e}")
+
+    return {
+        "fonte": resultado["fonte"],
+        "atividade": resultado["atividade"],
+        "area_foco": dados.area_foco,
+        "nivel_atual": dados.nivel_atual,
     }
