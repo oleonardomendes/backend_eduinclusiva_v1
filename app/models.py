@@ -549,6 +549,58 @@ class AvaliacaoTO(SQLModel, table=True):
 
 
 # =========================================================
+# 🧠 Módulo Clínico — Avaliação Psicologia
+# =========================================================
+class AvaliacaoPsicologia(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
+    especialista_id: int = Field(foreign_key="usuario.id", index=True)
+    data_avaliacao: date
+
+    # Regulação emocional
+    regulacao_emocional: Optional[str] = None        # muito_comprometida|comprometida|em_desenvolvimento|adequada
+    regulacao_emocional_obs: Optional[str] = None
+
+    # Comportamento adaptativo
+    comportamento_adaptativo: Optional[str] = None
+    comportamento_adaptativo_obs: Optional[str] = None
+
+    # Habilidades sociais
+    habilidades_sociais: Optional[str] = None
+    habilidades_sociais_obs: Optional[str] = None
+
+    # Ansiedade
+    nivel_ansiedade: Optional[str] = None            # muito_alto|alto|moderado|baixo|minimo
+    nivel_ansiedade_obs: Optional[str] = None
+
+    # Humor geral
+    humor_geral: Optional[str] = None               # muito_negativo|negativo|neutro|positivo|muito_positivo
+    humor_geral_obs: Optional[str] = None
+
+    # Autoestima
+    autoestima: Optional[str] = None                # muito_baixa|baixa|adequada|boa
+    autoestima_obs: Optional[str] = None
+
+    # Comportamentos desafiadores
+    comportamentos_desafiadores: Optional[str] = None  # JSON list de comportamentos identificados
+    frequencia_comportamentos: Optional[str] = None    # muito_frequente|frequente|ocasional|raro
+
+    # Estratégias de enfrentamento
+    estrategias_enfrentamento: Optional[str] = None    # JSON list de estratégias que funcionam
+
+    # Sono
+    qualidade_sono: Optional[str] = None             # muito_ruim|ruim|regular|boa
+    qualidade_sono_obs: Optional[str] = None
+
+    # Alimentação (aspecto emocional)
+    relacao_alimentacao: Optional[str] = None
+    relacao_alimentacao_obs: Optional[str] = None
+
+    observacoes_gerais: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):
