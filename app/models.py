@@ -401,6 +401,51 @@ class AvaliacaoPsicomotricidade(SQLModel, table=True):
 
 
 # =========================================================
+# 📚 Módulo Clínico — Avaliação Psicopedagogia
+# =========================================================
+class AvaliacaoPsicopedagogia(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
+    especialista_id: int = Field(foreign_key="usuario.id", index=True)
+    data_avaliacao: date
+
+    # Literacia
+    nivel_leitura: Optional[str] = None          # pre_silabico|silabico|silabico_alfabetico|alfabetico|fluente
+    nivel_leitura_obs: Optional[str] = None
+
+    nivel_escrita: Optional[str] = None
+    nivel_escrita_obs: Optional[str] = None
+
+    # Numeracia
+    nivel_matematica: Optional[str] = None       # emergente|em_desenvolvimento|adequado|avancado
+    nivel_matematica_obs: Optional[str] = None
+
+    # Funções executivas / cognitivas
+    atencao: Optional[str] = None               # muito_baixa|baixa|adequada|boa
+    atencao_obs: Optional[str] = None
+
+    memoria: Optional[str] = None
+    memoria_obs: Optional[str] = None
+
+    raciocinio_logico: Optional[str] = None
+    raciocinio_logico_obs: Optional[str] = None
+
+    # Linguagem e comunicação
+    linguagem_oral: Optional[str] = None         # emergente|em_desenvolvimento|consolidado
+    linguagem_oral_obs: Optional[str] = None
+
+    compreensao: Optional[str] = None
+    compreensao_obs: Optional[str] = None
+
+    # Habilidades de aprendizagem
+    organizacao: Optional[str] = None
+    organizacao_obs: Optional[str] = None
+
+    observacoes_gerais: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):

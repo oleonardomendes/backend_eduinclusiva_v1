@@ -25,6 +25,7 @@ from app.models import (
     RegistroPlanoFamilia,
     VinculoEspecialistaFamilia,
     AvaliacaoPsicomotricidade,
+    AvaliacaoPsicopedagogia,
     FilhoPublico,
     Aluno,
     Usuario as UsuarioModel,
@@ -740,6 +741,40 @@ class GerarAtividadePsicomotricidadeRequest(BaseModel):
 
 
 # =========================================================
+# Psicopedagogia — Schemas
+# =========================================================
+
+class AvaliacaoPsicopedagogiaCreate(BaseModel):
+    data_avaliacao: date
+    nivel_leitura: Optional[str] = None
+    nivel_leitura_obs: Optional[str] = None
+    nivel_escrita: Optional[str] = None
+    nivel_escrita_obs: Optional[str] = None
+    nivel_matematica: Optional[str] = None
+    nivel_matematica_obs: Optional[str] = None
+    atencao: Optional[str] = None
+    atencao_obs: Optional[str] = None
+    memoria: Optional[str] = None
+    memoria_obs: Optional[str] = None
+    raciocinio_logico: Optional[str] = None
+    raciocinio_logico_obs: Optional[str] = None
+    linguagem_oral: Optional[str] = None
+    linguagem_oral_obs: Optional[str] = None
+    compreensao: Optional[str] = None
+    compreensao_obs: Optional[str] = None
+    organizacao: Optional[str] = None
+    organizacao_obs: Optional[str] = None
+    observacoes_gerais: Optional[str] = None
+
+
+class GerarAtividadePsicopedagogiaRequest(BaseModel):
+    area_foco: str   # "leitura" | "escrita" | "matematica" | "atencao" | "memoria" | etc
+    nivel_atual: str
+    duracao_minutos: int = 20
+    observacoes: Optional[str] = None
+
+
+# =========================================================
 # Psicomotricidade — Helper de tendência
 # =========================================================
 
@@ -923,6 +958,252 @@ def gerar_atividade_psicomotricidade(
         "titulo": f"Atividade de Psicomotricidade — {area_label}",
         "disciplina": "Psicomotricidade",
         "tipo_atividade": "psicomotricidade",
+        "nivel_dificuldade": dados.nivel_atual,
+        "duracao_minutos": dados.duracao_minutos,
+        "descricao": (
+            f"Área de foco: {area_label}. "
+            f"Nível atual: {dados.nivel_atual}. "
+            f"{dados.observacoes or ''}"
+        ).strip(),
+    }
+
+    try:
+        resultado = gerar_atividade_clinica(
+            paciente=paciente,
+            especialista_id=current_user.id,
+            parametros=parametros,
+            session=session,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar atividade: {e}")
+
+    return {
+        "fonte": resultado["fonte"],
+        "atividade": resultado["atividade"],
+        "area_foco": dados.area_foco,
+        "nivel_atual": dados.nivel_atual,
+    }
+
+
+# =========================================================
+# Psicopedagogia — Helpers de tendência
+# =========================================================
+
+_NIVEL_VALOR_LITERACIA = {
+    "pre_silabico": 1,
+    "silabico": 2,
+    "silabico_alfabetico": 3,
+    "alfabetico": 4,
+    "fluente": 5,
+}
+
+_NIVEL_VALOR_COGNICAO = {
+    "muito_baixa": 1,
+    "baixa": 2,
+    "adequada": 3,
+    "adequado": 3,
+    "boa": 4,
+    "bom": 4,
+    "avancado": 4,
+}
+
+_NIVEL_VALOR_LINGUAGEM = {
+    "emergente": 1,
+    "em_desenvolvimento": 2,
+    "consolidado": 3,
+}
+
+_CAMPOS_LITERACIA = {"nivel_leitura", "nivel_escrita"}
+_CAMPOS_COGNICAO = {"nivel_matematica", "atencao", "memoria", "raciocinio_logico"}
+
+
+def _tendencia_habilidade_psico(campo: str, valores: list) -> str:
+    if campo in _CAMPOS_LITERACIA:
+        mapa = _NIVEL_VALOR_LITERACIA
+    elif campo in _CAMPOS_COGNICAO:
+        mapa = _NIVEL_VALOR_COGNICAO
+    else:
+        mapa = _NIVEL_VALOR_LINGUAGEM
+    numeros = [mapa[v] for v in valores if v in mapa]
+    if len(numeros) < 2:
+        return "estavel"
+    if numeros[-1] > numeros[0]:
+        return "melhorando"
+    if numeros[-1] < numeros[0]:
+        return "precisa_atencao"
+    return "estavel"
+
+
+# =========================================================
+# POST /pacientes/{id}/psicopedagogia/avaliacao/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/psicopedagogia/avaliacao/", status_code=201)
+def criar_avaliacao_psicopedagogia(
+    paciente_id: int,
+    dados: AvaliacaoPsicopedagogiaCreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    avaliacao = AvaliacaoPsicopedagogia(
+        paciente_id=paciente_id,
+        especialista_id=current_user.id,
+        **dados.model_dump(),
+    )
+    session.add(avaliacao)
+    session.commit()
+    session.refresh(avaliacao)
+    return avaliacao
+
+
+# =========================================================
+# GET /pacientes/{id}/psicopedagogia/avaliacao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/psicopedagogia/avaliacao/")
+def listar_avaliacoes_psicopedagogia(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    return session.exec(
+        select(AvaliacaoPsicopedagogia)
+        .where(AvaliacaoPsicopedagogia.paciente_id == paciente_id)
+        .order_by(AvaliacaoPsicopedagogia.data_avaliacao.desc())  # type: ignore[attr-defined]
+    ).all()
+
+
+# =========================================================
+# GET /pacientes/{id}/psicopedagogia/evolucao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/psicopedagogia/evolucao/")
+def evolucao_psicopedagogia(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    avaliacoes = session.exec(
+        select(AvaliacaoPsicopedagogia)
+        .where(AvaliacaoPsicopedagogia.paciente_id == paciente_id)
+        .order_by(AvaliacaoPsicopedagogia.data_avaliacao.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    _HABILIDADES_PSICO = [
+        "nivel_leitura",
+        "nivel_escrita",
+        "nivel_matematica",
+        "atencao",
+        "memoria",
+        "raciocinio_logico",
+        "linguagem_oral",
+        "compreensao",
+        "organizacao",
+    ]
+
+    habilidades: dict = {}
+    for hab in _HABILIDADES_PSICO:
+        historico = [
+            {"data": str(a.data_avaliacao), "valor": getattr(a, hab)}
+            for a in avaliacoes
+            if getattr(a, hab)
+        ]
+        valores = [h["valor"] for h in historico]
+        habilidades[hab] = {
+            "atual": valores[-1] if valores else None,
+            "historico": historico,
+            "tendencia": _tendencia_habilidade_psico(hab, valores),
+        }
+
+    relatorio_ia = None
+    if avaliacoes:
+        resumo_avals = "\n".join(
+            f"- {a.data_avaliacao}: "
+            f"leitura={a.nivel_leitura or '?'}, "
+            f"escrita={a.nivel_escrita or '?'}, "
+            f"matematica={a.nivel_matematica or '?'}, "
+            f"atencao={a.atencao or '?'}, "
+            f"memoria={a.memoria or '?'}, "
+            f"raciocinio={a.raciocinio_logico or '?'}, "
+            f"linguagem={a.linguagem_oral or '?'}, "
+            f"compreensao={a.compreensao or '?'}, "
+            f"organizacao={a.organizacao or '?'}"
+            for a in avaliacoes[-10:]
+        )
+
+        habilidades_atuais = "\n".join(
+            f"- {hab.replace('_', ' ').title()}: "
+            f"{habilidades[hab]['atual'] or 'não avaliado'} "
+            f"({habilidades[hab]['tendencia']})"
+            for hab in _HABILIDADES_PSICO
+        )
+
+        prompt = f"""Você é um psicopedagogo analisando a evolução de {paciente.nome} ({paciente.idade or '?'} anos, {paciente.condicao or 'necessidade especial'} {paciente.grau or ''}).
+
+Dados das últimas {len(avaliacoes[-10:])} avaliações:
+{resumo_avals}
+
+Habilidades atuais:
+{habilidades_atuais}
+
+Gere um relatório clínico breve com:
+1. Pontos de progresso observados
+2. Áreas que precisam de atenção
+3. Sugestões para as próximas sessões
+4. Orientações práticas para a família
+
+Responda em JSON:
+{{"pontos_positivos": ["string"], "areas_atencao": ["string"], "sugestoes_sessao": ["string"], "orientacoes_familia": ["string"], "resumo": "string"}}"""
+
+        api_key = os.getenv("GROQ_API_KEY")
+        if api_key:
+            try:
+                client = Groq(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.5,
+                )
+                raw = _limpar_json_resposta(response.choices[0].message.content)
+                relatorio_ia = json.loads(raw)
+            except Exception as e:
+                logger.error(f"Groq psicopedagogia evolução: {e}")
+
+    return {
+        "total_avaliacoes": len(avaliacoes),
+        "habilidades": habilidades,
+        "relatorio_ia": relatorio_ia,
+    }
+
+
+# =========================================================
+# POST /pacientes/{id}/psicopedagogia/gerar-atividade/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/psicopedagogia/gerar-atividade/", status_code=201)
+def gerar_atividade_psicopedagogia(
+    paciente_id: int,
+    dados: GerarAtividadePsicopedagogiaRequest,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    area_label = dados.area_foco.replace("_", " ").title()
+    parametros = {
+        "titulo": f"Atividade de Psicopedagogia — {area_label}",
+        "disciplina": "Psicopedagogia",
+        "tipo_atividade": "psicopedagogia",
         "nivel_dificuldade": dados.nivel_atual,
         "duracao_minutos": dados.duracao_minutos,
         "descricao": (
