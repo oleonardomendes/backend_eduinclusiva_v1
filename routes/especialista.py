@@ -30,7 +30,7 @@ from app.models import (
     Usuario as UsuarioModel,
 )
 from routes.auth import get_current_user, Usuario
-from services.ai_service import buscar_ou_gerar_atividade, _limpar_json_resposta
+from services.ai_service import buscar_ou_gerar_atividade, _limpar_json_resposta, gerar_atividade_clinica
 
 router = APIRouter()
 logger = logging.getLogger("uvicorn")
@@ -932,11 +932,10 @@ def gerar_atividade_psicomotricidade(
         ).strip(),
     }
 
-    aluno_id = paciente.filho_publico_id or paciente_id
     try:
-        resultado = buscar_ou_gerar_atividade(
-            aluno_id=aluno_id,
-            professor_id=current_user.id,
+        resultado = gerar_atividade_clinica(
+            paciente=paciente,
+            especialista_id=current_user.id,
             parametros=parametros,
             session=session,
         )

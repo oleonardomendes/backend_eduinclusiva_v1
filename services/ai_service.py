@@ -8,7 +8,7 @@ from datetime import datetime
 from groq import Groq
 from sqlmodel import Session, select
 
-from app.models import Aluno, Avaliacao, AtividadeGerada, AtividadeTemplate, Meta, Plano, FilhoPublico
+from app.models import Aluno, Avaliacao, AtividadeGerada, AtividadeTemplate, Meta, Plano, FilhoPublico, PacienteClinico
 
 logger = logging.getLogger("uvicorn")
 
@@ -592,6 +592,127 @@ Responda APENAS com JSON válido:
 
     logger.info(f"Atividade família salva em AtividadeGerada: '{atividade.titulo}' (id={atividade.id})")
     return atividade.model_dump()
+
+
+# =========================================================
+# Geração de atividade clínica (módulo especialista)
+# =========================================================
+
+def gerar_atividade_clinica(
+    paciente: PacienteClinico,
+    especialista_id: int,
+    parametros: dict,
+    session: Session,
+) -> dict:
+    """
+    Gera atividade terapêutica usando dados do PacienteClinico.
+    Não depende de Aluno — usa perfil clínico diretamente.
+    Salva como AtividadeGerada com aluno_id=paciente.id.
+    Retorna {"fonte": "ia_nova", "atividade": dict}
+    """
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY não configurada nas variáveis de ambiente.")
+
+    titulo = parametros.get("titulo") or "Atividade Clínica"
+    disciplina = parametros.get("disciplina") or "Geral"
+    tipo_atividade = parametros.get("tipo_atividade") or "clínica"
+    nivel_dificuldade = parametros.get("nivel_dificuldade") or "Médio"
+    duracao_minutos = parametros.get("duracao_minutos") or 20
+    descricao = parametros.get("descricao") or "Não especificada"
+
+    prompt = f"""Você é um especialista em {disciplina} e educação inclusiva.
+
+PERFIL DO PACIENTE:
+- Nome: {paciente.nome}
+- Idade: {paciente.idade or "Não informada"} anos
+- Condição/diagnóstico: {paciente.condicao or "Não informada"}
+- Grau da necessidade: {paciente.grau or "Não informado"}
+- Estilo de aprendizagem: {paciente.estilo_aprendizagem or "Não identificado"}
+
+PARÂMETROS DA ATIVIDADE:
+- Título desejado: {titulo}
+- Disciplina/Área: {disciplina}
+- Tipo de atividade: {tipo_atividade}
+- Nível atual/dificuldade: {nivel_dificuldade}
+- Duração: {duracao_minutos} minutos
+- Descrição/Foco: {descricao}
+
+TAREFA:
+Crie UMA atividade terapêutica prática para uso em sessão clínica ou em casa.
+- Adapte rigorosamente para a condição e grau da necessidade especial
+- Considere o estilo de aprendizagem em todas as etapas
+- Inclua instruções claras para o especialista E para a família
+- Use linguagem acessível e motivadora
+
+Responda APENAS com JSON válido:
+{{
+  "titulo": "string",
+  "objetivo": "string",
+  "duracao_minutos": number,
+  "dificuldade": "Fácil|Médio|Difícil",
+  "instrucao_professor": "string (como o especialista conduz a atividade)",
+  "instrucao_familia": "string (como a família repete em casa)",
+  "conteudo_atividade": "string (descrição detalhada)",
+  "materiais": ["string"],
+  "passo_a_passo": ["string"],
+  "adaptacoes": ["string"],
+  "criterios_avaliacao": ["string"],
+  "justificativa": "string",
+  "tags": ["string"]
+}}"""
+
+    client = Groq(api_key=api_key)
+    logger.info(f"Gerando atividade clínica via Groq para paciente {paciente.id} ({paciente.nome})")
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+    )
+    texto = response.choices[0].message.content
+
+    raw = _limpar_json_resposta(texto)
+    try:
+        resultado = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            resultado = json.loads(raw.strip())
+        except json.JSONDecodeError as e:
+            logger.error(f"Falha ao parsear JSON do Groq (clínica): {e}\nResposta:\n{raw}")
+            raise ValueError("Groq retornou resposta inválida (não é JSON)") from e
+
+    now = datetime.now()
+    atividade = AtividadeGerada(
+        aluno_id=paciente.id,
+        professor_id=especialista_id,
+        titulo=resultado["titulo"],
+        objetivo=resultado.get("objetivo"),
+        duracao_minutos=resultado.get("duracao_minutos"),
+        dificuldade=resultado.get("dificuldade"),
+        instrucao_professor=resultado.get("instrucao_professor"),
+        instrucao_familia=resultado.get("instrucao_familia"),
+        conteudo_atividade=resultado.get("conteudo_atividade"),
+        materiais=_serializar_lista(resultado.get("materiais")),
+        passo_a_passo=_serializar_lista(resultado.get("passo_a_passo")),
+        adaptacoes=_serializar_lista(resultado.get("adaptacoes")),
+        criterios_avaliacao=_serializar_lista(resultado.get("criterios_avaliacao")),
+        tags=_serializar_lista(resultado.get("tags")),
+        justificativa=resultado.get("justificativa"),
+        bimestre=(now.month - 1) // 3 + 1,
+        ano=now.year,
+        disciplina=disciplina,
+        tipo_atividade=tipo_atividade,
+        reutilizavel=False,
+        necessidade_atendida=paciente.condicao,
+        parametros_professor=json.dumps(parametros, ensure_ascii=False),
+    )
+    session.add(atividade)
+    session.commit()
+    session.refresh(atividade)
+
+    logger.info(f"Atividade clínica salva: '{atividade.titulo}' (id={atividade.id})")
+    return {"fonte": "ia_nova", "atividade": atividade.model_dump()}
 
 
 # =========================================================
