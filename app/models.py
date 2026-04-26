@@ -601,6 +601,78 @@ class AvaliacaoPsicologia(SQLModel, table=True):
 
 
 # =========================================================
+# 🎯 Módulo Clínico — Avaliação ABA
+# =========================================================
+class AvaliacaoABA(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
+    especialista_id: int = Field(foreign_key="usuario.id", index=True)
+    data_avaliacao: date
+
+    # Nível verbal (VB-MAPP simplificado)
+    nivel_verbal: Optional[str] = None               # nao_verbal|ecoico|mando|tato|intraverbal|conversacional
+    nivel_verbal_obs: Optional[str] = None
+
+    # Imitação
+    imitacao: Optional[str] = None                   # ausente|emergente|em_desenvolvimento|consolidada
+    imitacao_obs: Optional[str] = None
+
+    # Contato visual funcional
+    contato_visual: Optional[str] = None             # ausente|minimo|ocasional|frequente|consistente
+    contato_visual_obs: Optional[str] = None
+
+    # Seguir instruções
+    seguir_instrucoes: Optional[str] = None          # 1_passo|2_passos|3_passos|complexas
+    seguir_instrucoes_obs: Optional[str] = None
+
+    # Habilidades de jogo
+    habilidades_jogo: Optional[str] = None           # solitario|paralelo|associativo|cooperativo
+    habilidades_jogo_obs: Optional[str] = None
+
+    # Comportamentos interferentes
+    comportamentos_interferentes: Optional[str] = None  # JSON list
+    intensidade_comportamentos: Optional[str] = None    # leve|moderada|severa
+
+    # Reforçadores
+    reforcadores_primarios: Optional[str] = None        # JSON list
+    reforcadores_secundarios: Optional[str] = None      # JSON list
+
+    # Taxa de acerto geral (%)
+    taxa_acerto_geral: Optional[int] = None
+
+    # Programas em andamento
+    programas_andamento: Optional[str] = None           # JSON list
+
+    observacoes_gerais: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
+# 📋 Módulo Clínico — Registro de Comportamento ABA
+# =========================================================
+class RegistroComportamentoABA(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
+    especialista_id: int = Field(foreign_key="usuario.id", index=True)
+    sessao_id: Optional[int] = Field(default=None, foreign_key="sessaoclinica.id", index=True)
+    data_registro: date
+
+    comportamento: str                               # nome do comportamento-alvo
+    antecedente: Optional[str] = None
+    consequencia: Optional[str] = None
+
+    total_tentativas: int = Field(default=0)
+    total_acertos: int = Field(default=0)
+    taxa_acerto: Optional[float] = None              # calculado automaticamente
+
+    tipo_auxilio: Optional[str] = None               # independente|gestual|verbal|fisico_parcial|fisico_total
+    reforcador_utilizado: Optional[str] = None
+
+    observacoes: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):

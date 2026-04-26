@@ -29,6 +29,8 @@ from app.models import (
     AvaliacaoFono,
     AvaliacaoTO,
     AvaliacaoPsicologia,
+    AvaliacaoABA,
+    RegistroComportamentoABA,
     FilhoPublico,
     Aluno,
     Usuario as UsuarioModel,
@@ -882,6 +884,52 @@ class GerarAtividadePsicologiaRequest(BaseModel):
     area_foco: str   # regulacao_emocional|habilidades_sociais|ansiedade|autoestima|sono|comportamentos_desafiadores
     nivel_atual: str
     duracao_minutos: int = 20
+    observacoes: Optional[str] = None
+
+
+# =========================================================
+# ABA — Schemas
+# =========================================================
+
+class AvaliacaoABACreate(BaseModel):
+    data_avaliacao: date
+    nivel_verbal: Optional[str] = None
+    nivel_verbal_obs: Optional[str] = None
+    imitacao: Optional[str] = None
+    imitacao_obs: Optional[str] = None
+    contato_visual: Optional[str] = None
+    contato_visual_obs: Optional[str] = None
+    seguir_instrucoes: Optional[str] = None
+    seguir_instrucoes_obs: Optional[str] = None
+    habilidades_jogo: Optional[str] = None
+    habilidades_jogo_obs: Optional[str] = None
+    comportamentos_interferentes: Optional[str] = None
+    intensidade_comportamentos: Optional[str] = None
+    reforcadores_primarios: Optional[str] = None
+    reforcadores_secundarios: Optional[str] = None
+    taxa_acerto_geral: Optional[int] = None
+    programas_andamento: Optional[str] = None
+    observacoes_gerais: Optional[str] = None
+
+
+class RegistroComportamentoABACreate(BaseModel):
+    comportamento: str
+    antecedente: Optional[str] = None
+    consequencia: Optional[str] = None
+    total_tentativas: int
+    total_acertos: int
+    tipo_auxilio: Optional[str] = None
+    reforcador_utilizado: Optional[str] = None
+    data_registro: date
+    sessao_id: Optional[int] = None
+    observacoes: Optional[str] = None
+
+
+class GerarAtividadeABARequest(BaseModel):
+    comportamento_alvo: str
+    taxa_acerto_atual: float
+    tipo_auxilio_atual: str
+    duracao_minutos: int = 15
     observacoes: Optional[str] = None
 
 
@@ -2102,4 +2150,387 @@ def gerar_atividade_psicologia(
         "atividade": resultado_psicol["atividade"],
         "area_foco": dados.area_foco,
         "nivel_atual": dados.nivel_atual,
+    }
+
+
+# =========================================================
+# ABA — Helpers de tendência
+# =========================================================
+
+_NIVEL_VALOR_ABA_VERBAL = {
+    "nao_verbal": 1,
+    "ecoico": 2,
+    "mando": 3,
+    "tato": 4,
+    "intraverbal": 5,
+    "conversacional": 6,
+}
+
+_NIVEL_VALOR_ABA_IMITACAO = {
+    "ausente": 1,
+    "emergente": 2,
+    "em_desenvolvimento": 3,
+    "consolidada": 4,
+}
+
+_NIVEL_VALOR_ABA_CONTATO = {
+    "ausente": 1,
+    "minimo": 2,
+    "ocasional": 3,
+    "frequente": 4,
+    "consistente": 5,
+}
+
+_NIVEL_VALOR_ABA_INSTRUCOES = {
+    "1_passo": 1,
+    "2_passos": 2,
+    "3_passos": 3,
+    "complexas": 4,
+}
+
+_CAMPOS_ABA_VERBAL = {"nivel_verbal"}
+_CAMPOS_ABA_IMITACAO = {"imitacao"}
+_CAMPOS_ABA_CONTATO = {"contato_visual"}
+_CAMPOS_ABA_INSTRUCOES = {"seguir_instrucoes"}
+
+
+def _tendencia_habilidade_aba(campo: str, valores: list) -> str:
+    if campo in _CAMPOS_ABA_VERBAL:
+        mapa = _NIVEL_VALOR_ABA_VERBAL
+    elif campo in _CAMPOS_ABA_IMITACAO:
+        mapa = _NIVEL_VALOR_ABA_IMITACAO
+    elif campo in _CAMPOS_ABA_CONTATO:
+        mapa = _NIVEL_VALOR_ABA_CONTATO
+    elif campo in _CAMPOS_ABA_INSTRUCOES:
+        mapa = _NIVEL_VALOR_ABA_INSTRUCOES
+    else:
+        mapa = _NIVEL_VALOR_ABA_IMITACAO  # fallback 4-níveis
+    numeros = [mapa[v] for v in valores if v in mapa]
+    if len(numeros) < 2:
+        return "estavel"
+    if numeros[-1] > numeros[0]:
+        return "melhorando"
+    if numeros[-1] < numeros[0]:
+        return "precisa_atencao"
+    return "estavel"
+
+
+def _tendencia_taxa(taxas: list) -> str:
+    if len(taxas) < 2:
+        return "estavel"
+    if taxas[-1] > taxas[0]:
+        return "melhorando"
+    if taxas[-1] < taxas[0]:
+        return "precisa_atencao"
+    return "estavel"
+
+
+# =========================================================
+# POST /pacientes/{id}/aba/avaliacao/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/aba/avaliacao/", status_code=201)
+def criar_avaliacao_aba(
+    paciente_id: int,
+    dados: AvaliacaoABACreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    avaliacao = AvaliacaoABA(
+        paciente_id=paciente_id,
+        especialista_id=current_user.id,
+        **dados.model_dump(),
+    )
+    session.add(avaliacao)
+    session.commit()
+    session.refresh(avaliacao)
+    return avaliacao
+
+
+# =========================================================
+# GET /pacientes/{id}/aba/avaliacao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/aba/avaliacao/")
+def listar_avaliacoes_aba(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    return session.exec(
+        select(AvaliacaoABA)
+        .where(AvaliacaoABA.paciente_id == paciente_id)
+        .order_by(AvaliacaoABA.data_avaliacao.desc())  # type: ignore[attr-defined]
+    ).all()
+
+
+# =========================================================
+# POST /pacientes/{id}/aba/comportamentos/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/aba/comportamentos/", status_code=201)
+def registrar_comportamento_aba(
+    paciente_id: int,
+    dados: RegistroComportamentoABACreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    taxa = (
+        round((dados.total_acertos / dados.total_tentativas) * 100, 1)
+        if dados.total_tentativas > 0
+        else 0.0
+    )
+
+    registro = RegistroComportamentoABA(
+        paciente_id=paciente_id,
+        especialista_id=current_user.id,
+        taxa_acerto=taxa,
+        **dados.model_dump(),
+    )
+    session.add(registro)
+    session.commit()
+    session.refresh(registro)
+    return registro
+
+
+# =========================================================
+# GET /pacientes/{id}/aba/comportamentos/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/aba/comportamentos/")
+def listar_comportamentos_aba(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    registros = session.exec(
+        select(RegistroComportamentoABA)
+        .where(RegistroComportamentoABA.paciente_id == paciente_id)
+        .order_by(RegistroComportamentoABA.data_registro.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    # agrupa por nome do comportamento
+    agrupado: dict = {}
+    for r in registros:
+        nome = r.comportamento
+        if nome not in agrupado:
+            agrupado[nome] = []
+        agrupado[nome].append({
+            "data": str(r.data_registro),
+            "taxa_acerto": r.taxa_acerto,
+            "tipo_auxilio": r.tipo_auxilio,
+            "total_tentativas": r.total_tentativas,
+            "total_acertos": r.total_acertos,
+        })
+
+    resultado = []
+    for nome, historico in agrupado.items():
+        taxas = [h["taxa_acerto"] for h in historico if h["taxa_acerto"] is not None]
+        resultado.append({
+            "comportamento": nome,
+            "taxa_acerto_atual": taxas[-1] if taxas else None,
+            "total_registros": len(historico),
+            "historico": historico,
+            "tendencia": _tendencia_taxa(taxas),
+        })
+
+    return resultado
+
+
+# =========================================================
+# GET /pacientes/{id}/aba/evolucao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/aba/evolucao/")
+def evolucao_aba(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    avaliacoes = session.exec(
+        select(AvaliacaoABA)
+        .where(AvaliacaoABA.paciente_id == paciente_id)
+        .order_by(AvaliacaoABA.data_avaliacao.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    sessoes = session.exec(
+        select(SessaoClinica)
+        .where(
+            SessaoClinica.paciente_id == paciente_id,
+            SessaoClinica.especialidade == "aba",
+        )
+        .order_by(SessaoClinica.data_sessao.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    registros = session.exec(
+        select(RegistroComportamentoABA)
+        .where(RegistroComportamentoABA.paciente_id == paciente_id)
+        .order_by(RegistroComportamentoABA.data_registro.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    _HABILIDADES_ABA = [
+        "nivel_verbal",
+        "imitacao",
+        "contato_visual",
+        "seguir_instrucoes",
+        "habilidades_jogo",
+    ]
+
+    habilidades: dict = {}
+    for hab in _HABILIDADES_ABA:
+        historico = [
+            {"data": str(a.data_avaliacao), "valor": getattr(a, hab)}
+            for a in avaliacoes
+            if getattr(a, hab)
+        ]
+        valores = [h["valor"] for h in historico]
+        habilidades[hab] = {
+            "atual": valores[-1] if valores else None,
+            "historico": historico,
+            "tendencia": _tendencia_habilidade_aba(hab, valores),
+        }
+
+    taxa_acerto_atual = avaliacoes[-1].taxa_acerto_geral if avaliacoes else None
+
+    # agrupa comportamentos
+    agrupado: dict = {}
+    for r in registros:
+        nome = r.comportamento
+        if nome not in agrupado:
+            agrupado[nome] = []
+        if r.taxa_acerto is not None:
+            agrupado[nome].append(r.taxa_acerto)
+
+    comportamentos_resumo = [
+        {
+            "comportamento": nome,
+            "taxa_acerto_atual": taxas[-1] if taxas else None,
+            "total_registros": len(taxas),
+            "tendencia": _tendencia_taxa(taxas),
+        }
+        for nome, taxas in agrupado.items()
+    ]
+
+    relatorio_ia = None
+    if avaliacoes or sessoes:
+        resumo_sessoes = "\n".join(
+            f"- {s.data_sessao}: funcionou={s.o_que_funcionou or 'não registrado'}"
+            for s in sessoes[-10:]
+        ) if sessoes else "Nenhuma sessão registrada ainda."
+
+        habilidades_atuais = "\n".join(
+            f"- {hab.replace('_', ' ').title()}: "
+            f"{habilidades[hab]['atual'] or 'não avaliado'} "
+            f"({habilidades[hab]['tendencia']})"
+            for hab in _HABILIDADES_ABA
+        )
+
+        comportamentos_str = "\n".join(
+            f"- {c['comportamento']}: {c['taxa_acerto_atual']}% ({c['tendencia']})"
+            for c in comportamentos_resumo
+        ) or "Nenhum comportamento registrado ainda."
+
+        prompt = f"""Você é um terapeuta ABA analisando a evolução de {paciente.nome} ({paciente.idade or '?'} anos, {paciente.condicao or 'necessidade especial'} {paciente.grau or ''}).
+
+Habilidades verbais e comportamentais atuais:
+{habilidades_atuais}
+- Taxa de acerto geral: {taxa_acerto_atual if taxa_acerto_atual is not None else 'não avaliado'}%
+
+Comportamentos-alvo e taxas de acerto:
+{comportamentos_str}
+
+Dados das últimas sessões ABA:
+{resumo_sessoes}
+
+Gere um relatório ABA breve com:
+1. Habilidades em consolidação
+2. Comportamentos que precisam de mais intervenção
+3. Sugestões de programas para próximas sessões
+4. Orientações para a família generalizar os comportamentos aprendidos em casa
+
+Responda em JSON:
+{{"pontos_positivos": ["string"], "areas_atencao": ["string"], "sugestoes_sessao": ["string"], "orientacoes_familia": ["string"], "resumo": "string"}}"""
+
+        api_key = os.getenv("GROQ_API_KEY")
+        if api_key:
+            try:
+                client = Groq(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.5,
+                )
+                raw = _limpar_json_resposta(response.choices[0].message.content)
+                relatorio_ia = json.loads(raw)
+            except Exception as e:
+                logger.error(f"Groq ABA evolução: {e}")
+
+    return {
+        "total_sessoes": len(sessoes),
+        "total_avaliacoes": len(avaliacoes),
+        "taxa_acerto_atual": taxa_acerto_atual,
+        "habilidades": habilidades,
+        "comportamentos": comportamentos_resumo,
+        "relatorio_ia": relatorio_ia,
+    }
+
+
+# =========================================================
+# POST /pacientes/{id}/aba/gerar-atividade/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/aba/gerar-atividade/", status_code=201)
+def gerar_atividade_aba(
+    paciente_id: int,
+    dados: GerarAtividadeABARequest,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    parametros = {
+        "titulo": f"Atividade ABA — {dados.comportamento_alvo}",
+        "disciplina": "ABA",
+        "tipo_atividade": "aba",
+        "nivel_dificuldade": dados.tipo_auxilio_atual,
+        "duracao_minutos": dados.duracao_minutos,
+        "descricao": (
+            f"Comportamento-alvo: {dados.comportamento_alvo}. "
+            f"Taxa de acerto atual: {dados.taxa_acerto_atual}%. "
+            f"Tipo de auxílio atual: {dados.tipo_auxilio_atual}. "
+            f"{dados.observacoes or ''}"
+        ).strip(),
+    }
+
+    try:
+        resultado_aba = gerar_atividade_clinica(
+            paciente=paciente,
+            especialista_id=current_user.id,
+            parametros=parametros,
+            session=session,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar atividade: {e}")
+
+    return {
+        "fonte": resultado_aba["fonte"],
+        "atividade": resultado_aba["atividade"],
+        "comportamento_alvo": dados.comportamento_alvo,
+        "taxa_acerto_atual": dados.taxa_acerto_atual,
     }
