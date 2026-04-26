@@ -499,6 +499,56 @@ class AvaliacaoFono(SQLModel, table=True):
 
 
 # =========================================================
+# 🖐️ Módulo Clínico — Avaliação Terapia Ocupacional
+# =========================================================
+class AvaliacaoTO(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
+    especialista_id: int = Field(foreign_key="usuario.id", index=True)
+    data_avaliacao: date
+
+    # Atividades de vida diária
+    alimentacao: Optional[str] = None                  # dependente|assistida|supervisao|independente
+    alimentacao_obs: Optional[str] = None
+
+    higiene: Optional[str] = None
+    higiene_obs: Optional[str] = None
+
+    vestir: Optional[str] = None
+    vestir_obs: Optional[str] = None
+
+    mobilidade: Optional[str] = None
+    mobilidade_obs: Optional[str] = None
+
+    # Participação e ambiente
+    organizacao_ambiente: Optional[str] = None
+    organizacao_ambiente_obs: Optional[str] = None
+
+    brincar: Optional[str] = None                      # nao_funcional|funcional_simples|simbolico|cooperativo
+    brincar_obs: Optional[str] = None
+
+    # Integração e processamento sensorial
+    integracao_sensorial: Optional[str] = None         # muito_comprometida|comprometida|levemente_comprometida|adequada
+    integracao_sensorial_obs: Optional[str] = None
+
+    processamento_sensorial: Optional[str] = None      # hipersensivel|hiposensivel|misto|adequado
+    processamento_sensorial_obs: Optional[str] = None
+
+    # Escolar e motor
+    participacao_escolar: Optional[str] = None
+    participacao_escolar_obs: Optional[str] = None
+
+    grafomotora: Optional[str] = None
+    grafomotora_obs: Optional[str] = None
+
+    # Índice de autonomia geral (0 a 100)
+    indice_autonomia: Optional[int] = None
+
+    observacoes_gerais: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):

@@ -27,6 +27,7 @@ from app.models import (
     AvaliacaoPsicomotricidade,
     AvaliacaoPsicopedagogia,
     AvaliacaoFono,
+    AvaliacaoTO,
     FilhoPublico,
     Aluno,
     Usuario as UsuarioModel,
@@ -812,6 +813,43 @@ class GerarAtividadeFonoRequest(BaseModel):
 
 
 # =========================================================
+# TO — Schemas
+# =========================================================
+
+class AvaliacaoTOCreate(BaseModel):
+    data_avaliacao: date
+    alimentacao: Optional[str] = None
+    alimentacao_obs: Optional[str] = None
+    higiene: Optional[str] = None
+    higiene_obs: Optional[str] = None
+    vestir: Optional[str] = None
+    vestir_obs: Optional[str] = None
+    mobilidade: Optional[str] = None
+    mobilidade_obs: Optional[str] = None
+    organizacao_ambiente: Optional[str] = None
+    organizacao_ambiente_obs: Optional[str] = None
+    brincar: Optional[str] = None
+    brincar_obs: Optional[str] = None
+    integracao_sensorial: Optional[str] = None
+    integracao_sensorial_obs: Optional[str] = None
+    processamento_sensorial: Optional[str] = None
+    processamento_sensorial_obs: Optional[str] = None
+    participacao_escolar: Optional[str] = None
+    participacao_escolar_obs: Optional[str] = None
+    grafomotora: Optional[str] = None
+    grafomotora_obs: Optional[str] = None
+    indice_autonomia: Optional[int] = None
+    observacoes_gerais: Optional[str] = None
+
+
+class GerarAtividadeTORequest(BaseModel):
+    area_foco: str   # alimentacao|higiene|vestir|mobilidade|brincar|integracao_sensorial|organizacao_ambiente|grafomotora
+    nivel_atual: str
+    duracao_minutos: int = 15
+    observacoes: Optional[str] = None
+
+
+# =========================================================
 # Psicomotricidade — Helper de tendência
 # =========================================================
 
@@ -1513,6 +1551,251 @@ def gerar_atividade_fono(
     return {
         "fonte": resultado_fono["fonte"],
         "atividade": resultado_fono["atividade"],
+        "area_foco": dados.area_foco,
+        "nivel_atual": dados.nivel_atual,
+    }
+
+
+# =========================================================
+# TO — Helpers de tendência
+# =========================================================
+
+_NIVEL_VALOR_TO_AVD = {
+    "dependente": 1,
+    "assistida": 2,
+    "supervisao": 3,
+    "independente": 4,
+}
+
+_NIVEL_VALOR_TO_BRINCAR = {
+    "nao_funcional": 1,
+    "funcional_simples": 2,
+    "simbolico": 3,
+    "cooperativo": 4,
+}
+
+_NIVEL_VALOR_TO_SENSORIAL = {
+    "muito_comprometida": 1,
+    "comprometida": 2,
+    "levemente_comprometida": 3,
+    "adequada": 4,
+}
+
+_CAMPOS_TO_AVD = {"alimentacao", "higiene", "vestir", "mobilidade"}
+_CAMPOS_TO_BRINCAR = {"brincar"}
+
+
+def _tendencia_habilidade_to(campo: str, valores: list) -> str:
+    if campo in _CAMPOS_TO_AVD:
+        mapa = _NIVEL_VALOR_TO_AVD
+    elif campo in _CAMPOS_TO_BRINCAR:
+        mapa = _NIVEL_VALOR_TO_BRINCAR
+    else:
+        mapa = _NIVEL_VALOR_TO_SENSORIAL
+    numeros = [mapa[v] for v in valores if v in mapa]
+    if len(numeros) < 2:
+        return "estavel"
+    if numeros[-1] > numeros[0]:
+        return "melhorando"
+    if numeros[-1] < numeros[0]:
+        return "precisa_atencao"
+    return "estavel"
+
+
+# =========================================================
+# POST /pacientes/{id}/to/avaliacao/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/to/avaliacao/", status_code=201)
+def criar_avaliacao_to(
+    paciente_id: int,
+    dados: AvaliacaoTOCreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    avaliacao = AvaliacaoTO(
+        paciente_id=paciente_id,
+        especialista_id=current_user.id,
+        **dados.model_dump(),
+    )
+    session.add(avaliacao)
+    session.commit()
+    session.refresh(avaliacao)
+    return avaliacao
+
+
+# =========================================================
+# GET /pacientes/{id}/to/avaliacao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/to/avaliacao/")
+def listar_avaliacoes_to(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    return session.exec(
+        select(AvaliacaoTO)
+        .where(AvaliacaoTO.paciente_id == paciente_id)
+        .order_by(AvaliacaoTO.data_avaliacao.desc())  # type: ignore[attr-defined]
+    ).all()
+
+
+# =========================================================
+# GET /pacientes/{id}/to/evolucao/
+# =========================================================
+
+@router.get("/pacientes/{paciente_id}/to/evolucao/")
+def evolucao_to(
+    paciente_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    avaliacoes = session.exec(
+        select(AvaliacaoTO)
+        .where(AvaliacaoTO.paciente_id == paciente_id)
+        .order_by(AvaliacaoTO.data_avaliacao.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    sessoes = session.exec(
+        select(SessaoClinica)
+        .where(
+            SessaoClinica.paciente_id == paciente_id,
+            SessaoClinica.especialidade == "to",
+        )
+        .order_by(SessaoClinica.data_sessao.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    _HABILIDADES_TO = [
+        "alimentacao",
+        "higiene",
+        "vestir",
+        "mobilidade",
+        "brincar",
+        "integracao_sensorial",
+    ]
+
+    habilidades: dict = {}
+    for hab in _HABILIDADES_TO:
+        historico = [
+            {"data": str(a.data_avaliacao), "valor": getattr(a, hab)}
+            for a in avaliacoes
+            if getattr(a, hab)
+        ]
+        valores = [h["valor"] for h in historico]
+        habilidades[hab] = {
+            "atual": valores[-1] if valores else None,
+            "historico": historico,
+            "tendencia": _tendencia_habilidade_to(hab, valores),
+        }
+
+    indice_autonomia_atual = avaliacoes[-1].indice_autonomia if avaliacoes else None
+
+    relatorio_ia = None
+    if avaliacoes or sessoes:
+        resumo_sessoes = "\n".join(
+            f"- {s.data_sessao}: funcionou={s.o_que_funcionou or 'não registrado'}"
+            for s in sessoes[-10:]
+        ) if sessoes else "Nenhuma sessão registrada ainda."
+
+        habilidades_atuais = "\n".join(
+            f"- {hab.replace('_', ' ').title()}: "
+            f"{habilidades[hab]['atual'] or 'não avaliado'} "
+            f"({habilidades[hab]['tendencia']})"
+            for hab in _HABILIDADES_TO
+        )
+
+        prompt = f"""Você é um terapeuta ocupacional analisando a evolução de {paciente.nome} ({paciente.idade or '?'} anos, {paciente.condicao or 'necessidade especial'} {paciente.grau or ''}).
+
+Dados das últimas sessões de terapia ocupacional:
+{resumo_sessoes}
+
+Habilidades de autonomia atuais:
+{habilidades_atuais}
+- Índice de autonomia: {indice_autonomia_atual if indice_autonomia_atual is not None else 'não avaliado'}%
+
+Gere um relatório de terapia ocupacional breve com:
+1. Pontos de progresso observados
+2. Áreas que precisam de atenção
+3. Sugestões para as próximas sessões
+4. Orientações práticas para a família implementar nas atividades da vida diária
+
+Responda em JSON:
+{{"pontos_positivos": ["string"], "areas_atencao": ["string"], "sugestoes_sessao": ["string"], "orientacoes_familia": ["string"], "resumo": "string"}}"""
+
+        api_key = os.getenv("GROQ_API_KEY")
+        if api_key:
+            try:
+                client = Groq(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.5,
+                )
+                raw = _limpar_json_resposta(response.choices[0].message.content)
+                relatorio_ia = json.loads(raw)
+            except Exception as e:
+                logger.error(f"Groq TO evolução: {e}")
+
+    return {
+        "total_sessoes": len(sessoes),
+        "total_avaliacoes": len(avaliacoes),
+        "indice_autonomia_atual": indice_autonomia_atual,
+        "habilidades": habilidades,
+        "relatorio_ia": relatorio_ia,
+    }
+
+
+# =========================================================
+# POST /pacientes/{id}/to/gerar-atividade/
+# =========================================================
+
+@router.post("/pacientes/{paciente_id}/to/gerar-atividade/", status_code=201)
+def gerar_atividade_to(
+    paciente_id: int,
+    dados: GerarAtividadeTORequest,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_especialista(current_user)
+    paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
+
+    area_label = dados.area_foco.replace("_", " ").title()
+    parametros = {
+        "titulo": f"Atividade de Terapia Ocupacional — {area_label}",
+        "disciplina": "Terapia Ocupacional",
+        "tipo_atividade": "to",
+        "nivel_dificuldade": dados.nivel_atual,
+        "duracao_minutos": dados.duracao_minutos,
+        "descricao": (
+            f"Área de foco: {area_label}. "
+            f"Nível atual: {dados.nivel_atual}. "
+            f"{dados.observacoes or ''}"
+        ).strip(),
+    }
+
+    try:
+        resultado_to = gerar_atividade_clinica(
+            paciente=paciente,
+            especialista_id=current_user.id,
+            parametros=parametros,
+            session=session,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar atividade: {e}")
+
+    return {
+        "fonte": resultado_to["fonte"],
+        "atividade": resultado_to["atividade"],
         "area_foco": dados.area_foco,
         "nivel_atual": dados.nivel_atual,
     }
