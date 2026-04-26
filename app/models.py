@@ -312,6 +312,7 @@ class SessaoClinica(SQLModel, table=True):
 # 🏥 Módulo Clínico — Plano Semanal
 # =========================================================
 class PlanoSemanal(SQLModel, table=True):
+    __tablename__ = "planossemanal"
     id: Optional[int] = Field(default=None, primary_key=True)
     paciente_id: int = Field(foreign_key="pacienteclinico.id", index=True)
     especialista_id: int = Field(foreign_key="usuario.id", index=True)
