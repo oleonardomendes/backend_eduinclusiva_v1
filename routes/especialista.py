@@ -15,7 +15,7 @@ from datetime import datetime, date
 from fastapi import APIRouter, Depends, HTTPException
 from groq import Groq
 from pydantic import BaseModel
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 
 from app.database import get_session
 from app.models import (
@@ -240,7 +240,24 @@ def listar_pacientes(
     if ativo is not None:
         query = query.where(PacienteClinico.ativo == ativo)
     query = query.order_by(PacienteClinico.nome)  # type: ignore[attr-defined]
-    return session.exec(query).all()
+    pacientes = session.exec(query).all()
+
+    resultado = []
+    for p in pacientes:
+        ultima_sessao = session.exec(
+            select(SessaoClinica)
+            .where(SessaoClinica.paciente_id == p.id)
+            .order_by(SessaoClinica.data_sessao.desc())  # type: ignore[attr-defined]
+        ).first()
+        total_sessoes = session.exec(
+            select(func.count(SessaoClinica.id))
+            .where(SessaoClinica.paciente_id == p.id)
+        ).one()
+        d = p.model_dump()
+        d["last_session"] = ultima_sessao.data_sessao if ultima_sessao else None
+        d["total_sessoes"] = total_sessoes
+        resultado.append(d)
+    return resultado
 
 
 # =========================================================
