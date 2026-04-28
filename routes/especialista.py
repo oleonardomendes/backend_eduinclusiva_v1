@@ -1100,6 +1100,12 @@ def evolucao_psicomotricidade(
     _verificar_especialista(current_user)
     paciente = _verificar_acesso_paciente(paciente_id, current_user, session)
 
+    avaliacoes = session.exec(
+        select(AvaliacaoPsicomotricidade)
+        .where(AvaliacaoPsicomotricidade.paciente_id == paciente_id)
+        .order_by(AvaliacaoPsicomotricidade.data_avaliacao.asc())  # type: ignore[attr-defined]
+    ).all()
+
     sessoes = session.exec(
         select(SessaoClinica)
         .where(
@@ -1119,11 +1125,16 @@ def evolucao_psicomotricidade(
 
     habilidades: dict = {}
     for hab in _HABILIDADES:
-        historico = [
-            {"data": str(s.data_sessao), "valor": getattr(s, hab)}
-            for s in sessoes
-            if getattr(s, hab)
-        ]
+        historico = []
+        for av in avaliacoes:
+            v = getattr(av, hab)
+            if v:
+                historico.append({"data": str(av.data_avaliacao), "valor": v, "fonte": "avaliacao"})
+        for s in sessoes:
+            v = getattr(s, hab)
+            if v:
+                historico.append({"data": str(s.data_sessao), "valor": v, "fonte": "sessao"})
+        historico.sort(key=lambda x: x["data"])
         valores = [h["valor"] for h in historico]
         habilidades[hab] = {
             "atual": valores[-1] if valores else None,
@@ -1132,7 +1143,7 @@ def evolucao_psicomotricidade(
         }
 
     relatorio_ia = None
-    if sessoes:
+    if avaliacoes or sessoes:
         resumo_sessoes = "\n".join(
             f"- {s.data_sessao}: "
             f"coord_fina={s.coordenacao_fina or '?'}, "
@@ -1142,7 +1153,7 @@ def evolucao_psicomotricidade(
             f"esquema_corporal={s.esquema_corporal or '?'}, "
             f"funcionou={s.o_que_funcionou or 'não registrado'}"
             for s in sessoes[-10:]
-        )
+        ) if sessoes else "Nenhuma sessão registrada ainda."
 
         habilidades_atuais = "\n".join(
             f"- {hab.replace('_', ' ').title()}: "
@@ -1153,10 +1164,10 @@ def evolucao_psicomotricidade(
 
         prompt = f"""Você é um especialista em psicomotricidade analisando a evolução de {paciente.nome} ({paciente.idade or '?'} anos, {paciente.condicao or 'necessidade especial'} {paciente.grau or ''}).
 
-Dados das últimas {len(sessoes[-10:])} sessões:
+Dados das últimas sessões:
 {resumo_sessoes}
 
-Habilidades atuais:
+Habilidades atuais (combinando avaliações e sessões):
 {habilidades_atuais}
 
 Gere um relatório clínico breve com:
@@ -1184,6 +1195,7 @@ Responda em JSON:
 
     return {
         "total_sessoes": len(sessoes),
+        "total_avaliacoes": len(avaliacoes),
         "habilidades": habilidades,
         "relatorio_ia": relatorio_ia,
     }
@@ -1348,6 +1360,18 @@ def evolucao_psicopedagogia(
         .order_by(AvaliacaoPsicopedagogia.data_avaliacao.asc())  # type: ignore[attr-defined]
     ).all()
 
+    sessoes = session.exec(
+        select(SessaoClinica)
+        .where(
+            SessaoClinica.paciente_id == paciente_id,
+            SessaoClinica.especialidade == "psicopedagogia",
+        )
+        .order_by(SessaoClinica.data_sessao.asc())  # type: ignore[attr-defined]
+    ).all()
+
+    # Habilidades com dados também em SessaoClinica
+    _HABILIDADES_COM_SESSAO = {"nivel_leitura", "nivel_escrita", "nivel_matematica"}
+
     _HABILIDADES_PSICO = [
         "nivel_leitura",
         "nivel_escrita",
@@ -1362,11 +1386,17 @@ def evolucao_psicopedagogia(
 
     habilidades: dict = {}
     for hab in _HABILIDADES_PSICO:
-        historico = [
-            {"data": str(a.data_avaliacao), "valor": getattr(a, hab)}
-            for a in avaliacoes
-            if getattr(a, hab)
-        ]
+        historico = []
+        for av in avaliacoes:
+            v = getattr(av, hab)
+            if v:
+                historico.append({"data": str(av.data_avaliacao), "valor": v, "fonte": "avaliacao"})
+        if hab in _HABILIDADES_COM_SESSAO:
+            for s in sessoes:
+                v = getattr(s, hab)
+                if v:
+                    historico.append({"data": str(s.data_sessao), "valor": v, "fonte": "sessao"})
+        historico.sort(key=lambda x: x["data"])
         valores = [h["valor"] for h in historico]
         habilidades[hab] = {
             "atual": valores[-1] if valores else None,
@@ -1375,7 +1405,7 @@ def evolucao_psicopedagogia(
         }
 
     relatorio_ia = None
-    if avaliacoes:
+    if avaliacoes or sessoes:
         resumo_avals = "\n".join(
             f"- {a.data_avaliacao}: "
             f"leitura={a.nivel_leitura or '?'}, "
@@ -1388,7 +1418,16 @@ def evolucao_psicopedagogia(
             f"compreensao={a.compreensao or '?'}, "
             f"organizacao={a.organizacao or '?'}"
             for a in avaliacoes[-10:]
-        )
+        ) if avaliacoes else "Nenhuma avaliação registrada ainda."
+
+        resumo_sessoes = "\n".join(
+            f"- {s.data_sessao}: "
+            f"leitura={s.nivel_leitura or '?'}, "
+            f"escrita={s.nivel_escrita or '?'}, "
+            f"matematica={s.nivel_matematica or '?'}, "
+            f"funcionou={s.o_que_funcionou or 'não registrado'}"
+            for s in sessoes[-10:]
+        ) if sessoes else "Nenhuma sessão registrada ainda."
 
         habilidades_atuais = "\n".join(
             f"- {hab.replace('_', ' ').title()}: "
@@ -1399,10 +1438,13 @@ def evolucao_psicopedagogia(
 
         prompt = f"""Você é um psicopedagogo analisando a evolução de {paciente.nome} ({paciente.idade or '?'} anos, {paciente.condicao or 'necessidade especial'} {paciente.grau or ''}).
 
-Dados das últimas {len(avaliacoes[-10:])} avaliações:
+Avaliações formais:
 {resumo_avals}
 
-Habilidades atuais:
+Sessões clínicas:
+{resumo_sessoes}
+
+Habilidades atuais (combinando avaliações e sessões):
 {habilidades_atuais}
 
 Gere um relatório clínico breve com:
@@ -1429,6 +1471,7 @@ Responda em JSON:
                 logger.error(f"Groq psicopedagogia evolução: {e}")
 
     return {
+        "total_sessoes": len(sessoes),
         "total_avaliacoes": len(avaliacoes),
         "habilidades": habilidades,
         "relatorio_ia": relatorio_ia,
@@ -1617,11 +1660,16 @@ def evolucao_fono(
 
     habilidades: dict = {}
     for hab in _HABILIDADES_FONO:
-        historico = [
-            {"data": str(a.data_avaliacao), "valor": getattr(a, hab)}
-            for a in avaliacoes
-            if getattr(a, hab)
-        ]
+        historico = []
+        for av in avaliacoes:
+            v = getattr(av, hab)
+            if v:
+                historico.append({"data": str(av.data_avaliacao), "valor": v, "fonte": "avaliacao"})
+        for s in sessoes:
+            v = getattr(s, hab)
+            if v:
+                historico.append({"data": str(s.data_sessao), "valor": v, "fonte": "sessao"})
+        historico.sort(key=lambda x: x["data"])
         valores = [h["valor"] for h in historico]
         habilidades[hab] = {
             "atual": valores[-1] if valores else None,
@@ -1858,14 +1906,21 @@ def evolucao_to(
         "brincar",
         "integracao_sensorial",
     ]
+    _HABILIDADES_TO_SESSAO = {"alimentacao", "higiene", "vestir", "brincar", "integracao_sensorial"}
 
     habilidades: dict = {}
     for hab in _HABILIDADES_TO:
-        historico = [
-            {"data": str(a.data_avaliacao), "valor": getattr(a, hab)}
-            for a in avaliacoes
-            if getattr(a, hab)
-        ]
+        historico = []
+        for av in avaliacoes:
+            v = getattr(av, hab)
+            if v:
+                historico.append({"data": str(av.data_avaliacao), "valor": v, "fonte": "avaliacao"})
+        if hab in _HABILIDADES_TO_SESSAO:
+            for s in sessoes:
+                v = getattr(s, hab)
+                if v:
+                    historico.append({"data": str(s.data_sessao), "valor": v, "fonte": "sessao"})
+        historico.sort(key=lambda x: x["data"])
         valores = [h["valor"] for h in historico]
         habilidades[hab] = {
             "atual": valores[-1] if valores else None,
@@ -2128,11 +2183,17 @@ def evolucao_psicologia(
 
     habilidades: dict = {}
     for hab in _HABILIDADES_PSICOL:
-        historico = [
-            {"data": str(a.data_avaliacao), "valor": getattr(a, hab)}
-            for a in avaliacoes
-            if getattr(a, hab)
-        ]
+        historico = []
+        for av in avaliacoes:
+            v = getattr(av, hab)
+            if v:
+                historico.append({"data": str(av.data_avaliacao), "valor": v, "fonte": "avaliacao"})
+        sessao_field = "humor_geral_sessao" if hab == "humor_geral" else hab
+        for s in sessoes:
+            v = getattr(s, sessao_field, None)
+            if v:
+                historico.append({"data": str(s.data_sessao), "valor": v, "fonte": "sessao"})
+        historico.sort(key=lambda x: x["data"])
         valores = [h["valor"] for h in historico]
         habilidades[hab] = {
             "atual": valores[-1] if valores else None,
@@ -2484,11 +2545,16 @@ def evolucao_aba(
 
     habilidades: dict = {}
     for hab in _HABILIDADES_ABA:
-        historico = [
-            {"data": str(a.data_avaliacao), "valor": getattr(a, hab)}
-            for a in avaliacoes
-            if getattr(a, hab)
-        ]
+        historico = []
+        for av in avaliacoes:
+            v = getattr(av, hab)
+            if v:
+                historico.append({"data": str(av.data_avaliacao), "valor": v, "fonte": "avaliacao"})
+        for s in sessoes:
+            v = getattr(s, hab)
+            if v:
+                historico.append({"data": str(s.data_sessao), "valor": v, "fonte": "sessao"})
+        historico.sort(key=lambda x: x["data"])
         valores = [h["valor"] for h in historico]
         habilidades[hab] = {
             "atual": valores[-1] if valores else None,
@@ -2780,11 +2846,17 @@ def evolucao_nutricao(
 
     habilidades: dict = {}
     for hab in _HABILIDADES_NUTRI:
-        historico = [
-            {"data": str(a.data_avaliacao), "valor": getattr(a, hab)}
-            for a in avaliacoes
-            if getattr(a, hab)
-        ]
+        historico = []
+        for av in avaliacoes:
+            v = getattr(av, hab)
+            if v:
+                historico.append({"data": str(av.data_avaliacao), "valor": v, "fonte": "avaliacao"})
+        sessao_field = "hidratacao_sessao" if hab == "hidratacao" else hab
+        for s in sessoes:
+            v = getattr(s, sessao_field, None)
+            if v:
+                historico.append({"data": str(s.data_sessao), "valor": v, "fonte": "sessao"})
+        historico.sort(key=lambda x: x["data"])
         valores = [h["valor"] for h in historico]
         habilidades[hab] = {
             "atual": valores[-1] if valores else None,
@@ -3058,14 +3130,24 @@ def evolucao_fisioterapia(
         "coordenacao_motora",
         "postura",
     ]
+    _SESSAO_FIELD_MAP_FISIO = {
+        "tonus_muscular": "tonus_muscular_ft",
+        "coordenacao_motora": "coordenacao_motora_ft",
+    }
 
     habilidades: dict = {}
     for hab in _HABILIDADES_FISIO:
-        historico = [
-            {"data": str(a.data_avaliacao), "valor": getattr(a, hab)}
-            for a in avaliacoes
-            if getattr(a, hab)
-        ]
+        historico = []
+        for av in avaliacoes:
+            v = getattr(av, hab)
+            if v:
+                historico.append({"data": str(av.data_avaliacao), "valor": v, "fonte": "avaliacao"})
+        sessao_field = _SESSAO_FIELD_MAP_FISIO.get(hab, hab)
+        for s in sessoes:
+            v = getattr(s, sessao_field, None)
+            if v:
+                historico.append({"data": str(s.data_sessao), "valor": v, "fonte": "sessao"})
+        historico.sort(key=lambda x: x["data"])
         valores = [h["valor"] for h in historico]
         habilidades[hab] = {
             "atual": valores[-1] if valores else None,

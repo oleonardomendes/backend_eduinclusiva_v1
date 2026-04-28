@@ -305,6 +305,52 @@ class SessaoClinica(SQLModel, table=True):
     lateralidade: Optional[str] = None
     esquema_corporal: Optional[str] = None
 
+    # Fono+
+    linguagem_expressiva: Optional[str] = None
+    linguagem_receptiva: Optional[str] = None
+    articulacao: Optional[str] = None
+    vocabulario: Optional[str] = None
+    fluencia: Optional[str] = None
+    pragmatica: Optional[str] = None
+
+    # TO+
+    alimentacao: Optional[str] = None
+    higiene: Optional[str] = None
+    vestir: Optional[str] = None
+    brincar: Optional[str] = None
+    integracao_sensorial: Optional[str] = None
+
+    # Psicologia+
+    regulacao_emocional: Optional[str] = None
+    habilidades_sociais: Optional[str] = None
+    nivel_ansiedade: Optional[str] = None
+    humor_geral_sessao: Optional[str] = None       # avaliacao usa humor_geral
+    autoestima: Optional[str] = None
+    qualidade_sono: Optional[str] = None
+
+    # ABA+
+    nivel_verbal: Optional[str] = None
+    imitacao: Optional[str] = None
+    contato_visual: Optional[str] = None
+    seguir_instrucoes: Optional[str] = None
+    habilidades_jogo: Optional[str] = None
+    taxa_acerto_sessao: Optional[float] = None
+
+    # Nutrição+
+    estado_nutricional: Optional[str] = None
+    seletividade_alimentar: Optional[str] = None
+    comportamento_alimentar: Optional[str] = None
+    hidratacao_sessao: Optional[str] = None        # avaliacao usa hidratacao
+
+    # Fisioterapia+
+    tonus_muscular_ft: Optional[str] = None        # avaliacao usa tonus_muscular
+    forca_muscular: Optional[str] = None
+    marcha: Optional[str] = None
+    equilibrio_estatico: Optional[str] = None
+    equilibrio_dinamico: Optional[str] = None
+    coordenacao_motora_ft: Optional[str] = None    # avaliacao usa coordenacao_motora
+    postura: Optional[str] = None
+
     criado_em: datetime = Field(default_factory=datetime.utcnow)
 
 
