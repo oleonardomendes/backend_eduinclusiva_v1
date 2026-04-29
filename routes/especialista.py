@@ -760,7 +760,7 @@ class AvaliacaoPsicomotricidadeCreate(BaseModel):
 class GerarAtividadePsicomotricidadeRequest(BaseModel):
     area_foco: str
     nivel_atual: str
-    duracao_minutos: int = 15
+    duracao_minutos: Optional[int] = 15
     observacoes: Optional[str] = None
 
 
@@ -794,7 +794,7 @@ class AvaliacaoPsicopedagogiaCreate(BaseModel):
 class GerarAtividadePsicopedagogiaRequest(BaseModel):
     area_foco: str   # "leitura" | "escrita" | "matematica" | "atencao" | "memoria" | etc
     nivel_atual: str
-    duracao_minutos: int = 20
+    duracao_minutos: Optional[int] = 20
     observacoes: Optional[str] = None
 
 
@@ -830,7 +830,7 @@ class AvaliacaoFonoCreate(BaseModel):
 class GerarAtividadeFonoRequest(BaseModel):
     area_foco: str   # linguagem_expressiva|linguagem_receptiva|articulacao|vocabulario|pragmatica|comunicacao_alternativa
     nivel_atual: str
-    duracao_minutos: int = 15
+    duracao_minutos: Optional[int] = 15
     observacoes: Optional[str] = None
 
 
@@ -867,7 +867,7 @@ class AvaliacaoTOCreate(BaseModel):
 class GerarAtividadeTORequest(BaseModel):
     area_foco: str   # alimentacao|higiene|vestir|mobilidade|brincar|integracao_sensorial|organizacao_ambiente|grafomotora
     nivel_atual: str
-    duracao_minutos: int = 15
+    duracao_minutos: Optional[int] = 15
     observacoes: Optional[str] = None
 
 
@@ -902,7 +902,7 @@ class AvaliacaoPsicologiaCreate(BaseModel):
 class GerarAtividadePsicologiaRequest(BaseModel):
     area_foco: str   # regulacao_emocional|habilidades_sociais|ansiedade|autoestima|sono|comportamentos_desafiadores
     nivel_atual: str
-    duracao_minutos: int = 20
+    duracao_minutos: Optional[int] = 20
     observacoes: Optional[str] = None
 
 
@@ -946,9 +946,9 @@ class RegistroComportamentoABACreate(BaseModel):
 
 class GerarAtividadeABARequest(BaseModel):
     comportamento_alvo: str
-    taxa_acerto_atual: float
-    tipo_auxilio_atual: str
-    duracao_minutos: int = 15
+    taxa_acerto_atual: Optional[float] = None
+    tipo_auxilio_atual: Optional[str] = None
+    duracao_minutos: Optional[int] = 15
     observacoes: Optional[str] = None
 
 
@@ -983,7 +983,7 @@ class AvaliacaoNutricaoCreate(BaseModel):
 class GerarAtividadeNutricaoRequest(BaseModel):
     area_foco: str   # seletividade_alimentar|hidratacao|comportamento_alimentar|introducao_alimentos|rotina_alimentar
     nivel_atual: str
-    duracao_minutos: int = 20
+    duracao_minutos: Optional[int] = 20
     observacoes: Optional[str] = None
 
 
@@ -1020,7 +1020,7 @@ class AvaliacaoFisioterapiaCreate(BaseModel):
 class GerarAtividadeFisioterapiaRequest(BaseModel):
     area_foco: str   # tonus_muscular|forca_muscular|marcha|equilibrio|coordenacao_motora|postura|alongamento|respiracao
     nivel_atual: str
-    duracao_minutos: int = 20
+    duracao_minutos: Optional[int] = 20
     observacoes: Optional[str] = None
 
 
@@ -2669,8 +2669,8 @@ def gerar_atividade_aba(
         "duracao_minutos": dados.duracao_minutos,
         "descricao": (
             f"Comportamento-alvo: {dados.comportamento_alvo}. "
-            f"Taxa de acerto atual: {dados.taxa_acerto_atual}%. "
-            f"Tipo de auxílio atual: {dados.tipo_auxilio_atual}. "
+            f"Taxa de acerto atual: {dados.taxa_acerto_atual or 'não informado'}. "
+            f"Tipo de auxílio atual: {dados.tipo_auxilio_atual or 'não informado'}. "
             f"{dados.observacoes or ''}"
         ).strip(),
     }
