@@ -148,6 +148,7 @@ class TarefaItem(BaseModel):
 
 
 class PlanoCreate(BaseModel):
+    especialidade: Optional[str] = None
     semana_inicio: date
     semana_fim: date
     tarefas: list[TarefaItem]
@@ -443,6 +444,7 @@ def criar_plano(
         tarefas=tarefas_json,
         orientacoes_gerais=dados.orientacoes_gerais,
         atividade_ia_id=atividade_ia_id,
+        especialidade=dados.especialidade,
     )
     session.add(plano)
     session.commit()
@@ -664,6 +666,7 @@ def registros_familia(
         select(PlanoSemanal)
         .where(
             PlanoSemanal.paciente_id == paciente_id,
+            PlanoSemanal.especialista_id == current_user.id,
             PlanoSemanal.enviado_familia == True,  # noqa: E712
         )
         .order_by(PlanoSemanal.semana_inicio.desc())  # type: ignore[attr-defined]

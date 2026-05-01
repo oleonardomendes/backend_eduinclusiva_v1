@@ -722,6 +722,18 @@ def upgrade_plano(
 # GET /planos-prescritos/ — planos semanais enviados pelo especialista
 # =========================================================
 
+_CORES_ESPECIALIDADE = {
+    "psicomotricidade": "#1B4332",
+    "psicopedagogia":   "#1E3A5F",
+    "fono":             "#7B2D8B",
+    "to":               "#C05200",
+    "psicologia":       "#7F1D1D",
+    "aba":              "#1A3A4A",
+    "nutricao":         "#14532D",
+    "fisioterapia":     "#1E1B4B",
+}
+
+
 @router.get("/planos-prescritos/")
 def planos_prescritos(
     session: Session = Depends(get_session),
@@ -729,7 +741,6 @@ def planos_prescritos(
 ):
     _verificar_familia(current_user)
 
-    # Busca vínculos ativos do responsável
     vinculos = session.exec(
         select(VinculoEspecialistaFamilia).where(
             VinculoEspecialistaFamilia.responsavel_id == current_user.id,
@@ -737,13 +748,13 @@ def planos_prescritos(
         )
     ).all()
 
+    vazio = {"semana_atual": None, "por_especialidade": [], "semanas_anteriores": []}
     if not vinculos:
-        return []
+        return vazio
 
     paciente_ids = [v.paciente_id for v in vinculos]
     especialista_ids = {v.especialista_id for v in vinculos}
 
-    # Pre-carrega nomes dos especialistas e pacientes
     especialistas = {
         u.id: u.nome
         for u in session.exec(
@@ -752,16 +763,7 @@ def planos_prescritos(
             )
         ).all()
     }
-    pacientes = {
-        p.id: p
-        for p in session.exec(
-            select(PacienteClinico).where(
-                PacienteClinico.id.in_(paciente_ids)  # type: ignore[attr-defined]
-            )
-        ).all()
-    }
 
-    # Busca planos enviados
     planos = session.exec(
         select(PlanoSemanal)
         .where(
@@ -771,38 +773,30 @@ def planos_prescritos(
         .order_by(PlanoSemanal.semana_inicio.desc())  # type: ignore[attr-defined]
     ).all()
 
-    result = []
-    for p in planos:
+    if not planos:
+        return vazio
+
+    def _montar_grupo(plano: PlanoSemanal) -> dict:
         try:
-            tarefas = json.loads(p.tarefas)
+            tarefas = json.loads(plano.tarefas)
         except (json.JSONDecodeError, TypeError):
             tarefas = []
-
         registros = session.exec(
             select(RegistroPlanoFamilia).where(
-                RegistroPlanoFamilia.plano_id == p.id
+                RegistroPlanoFamilia.plano_id == plano.id
             )
         ).all()
-
-        total_tarefas = len(tarefas)
+        total = len(tarefas)
         concluidas = sum(1 for r in registros if r.concluiu)
-        percentual = round(concluidas / total_tarefas * 100, 1) if total_tarefas else 0.0
-
-        paciente = pacientes.get(p.paciente_id)
-        result.append({
-            "id": p.id,
-            "semana_inicio": p.semana_inicio,
-            "semana_fim": p.semana_fim,
+        percentual = round(concluidas / total * 100, 1) if total else 0.0
+        esp = plano.especialidade or "geral"
+        return {
+            "especialidade": esp,
+            "cor": _CORES_ESPECIALIDADE.get(esp, "#374151"),
+            "especialista_nome": especialistas.get(plano.especialista_id),
+            "plano_id": plano.id,
             "tarefas": tarefas,
-            "orientacoes_gerais": p.orientacoes_gerais,
-            "paciente": {
-                "nome": paciente.nome if paciente else None,
-                "condicao": paciente.condicao if paciente else None,
-                "grau": paciente.grau if paciente else None,
-            },
-            "especialista": {
-                "nome": especialistas.get(p.especialista_id),
-            },
+            "orientacoes_gerais": plano.orientacoes_gerais,
             "registros": [
                 {
                     "tarefa_index": r.tarefa_index,
@@ -813,8 +807,40 @@ def planos_prescritos(
                 for r in registros
             ],
             "percentual_conclusao": percentual,
-        })
-    return result
+        }
+
+    # Agrupa planos por (semana_inicio, semana_fim)
+    semanas_map: dict[tuple, list] = {}
+    for p in planos:
+        chave = (p.semana_inicio, p.semana_fim)
+        semanas_map.setdefault(chave, []).append(p)
+
+    semanas_ordenadas = sorted(semanas_map.keys(), key=lambda x: x[0], reverse=True)
+
+    # Determina semana atual: contém hoje, ou a mais recente
+    hoje = date.today()
+    chave_atual = next(
+        (k for k in semanas_ordenadas if k[0] <= hoje <= k[1]),
+        semanas_ordenadas[0],
+    )
+    inicio_atual, fim_atual = chave_atual
+
+    por_especialidade = [_montar_grupo(p) for p in semanas_map[chave_atual]]
+
+    semanas_anteriores = [
+        {
+            "semana": {"inicio": str(k[0]), "fim": str(k[1])},
+            "por_especialidade": [_montar_grupo(p) for p in semanas_map[k]],
+        }
+        for k in semanas_ordenadas
+        if k != chave_atual
+    ]
+
+    return {
+        "semana_atual": {"inicio": str(inicio_atual), "fim": str(fim_atual)},
+        "por_especialidade": por_especialidade,
+        "semanas_anteriores": semanas_anteriores,
+    }
 
 
 # =========================================================
@@ -884,6 +910,7 @@ def registrar_tarefa(
             concluiu=body.concluiu,
             humor=body.humor,
             observacao=body.observacao,
+            especialidade=plano.especialidade,
         )
 
     session.add(registro)

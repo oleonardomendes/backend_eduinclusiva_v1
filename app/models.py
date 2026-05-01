@@ -368,6 +368,7 @@ class PlanoSemanal(SQLModel, table=True):
     tarefas: str                                    # JSON list de tarefas
     orientacoes_gerais: Optional[str] = None
     atividade_ia_id: Optional[int] = Field(default=None, foreign_key="atividadegerada.id")
+    especialidade: Optional[str] = None
     enviado_familia: bool = Field(default=False)
     enviado_em: Optional[datetime] = None
     criado_em: datetime = Field(default_factory=datetime.utcnow)
@@ -385,6 +386,7 @@ class RegistroPlanoFamilia(SQLModel, table=True):
     concluiu: bool = Field(default=False)
     humor: Optional[str] = None
     observacao: Optional[str] = None
+    especialidade: Optional[str] = None
     criado_em: datetime = Field(default_factory=datetime.utcnow)
 
 
