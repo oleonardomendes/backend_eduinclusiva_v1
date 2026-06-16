@@ -1360,13 +1360,15 @@ def criar_imprevisto(
         raise HTTPException(status_code=404, detail="Filho não encontrado.")
     _verificar_dono_filho(filho, current_user)
 
+    print(f"Gerando orientações para imprevisto: {body.tipo}")
+    print(f"Filho: {filho.nome}, {filho.condicao}")
+
     prompt = f"""Um pai registrou o seguinte imprevisto com seu filho de {filho.idade or "?"} anos com {filho.condicao or "necessidade especial"} ({filho.grau_necessidade or "grau não informado"}):
 
 Tipo: {body.tipo}
 Descrição: {body.descricao}
 
 Gere orientações práticas e acolhedoras para o pai lidar com essa situação em casa hoje.
-Considere o perfil da criança e seja específico.
 
 Responda em JSON:
 {{
@@ -1377,6 +1379,7 @@ Responda em JSON:
 }}"""
 
     orientacoes_ia = _chamar_groq_json(prompt)
+    print(f"orientacoes_ia retornado pelo Groq: {orientacoes_ia}")
     orientacoes_json = json.dumps(orientacoes_ia, ensure_ascii=False) if orientacoes_ia else None
 
     imprevisto = ImprevistoDia(
