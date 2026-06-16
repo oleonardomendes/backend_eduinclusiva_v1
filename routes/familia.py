@@ -437,11 +437,11 @@ def _chamar_groq_json(prompt: str) -> dict | None:
         )
         resposta_raw = response.choices[0].message.content or ""
         print(f"Resposta RAW do Groq: '{resposta_raw}'")
-        if not resposta_raw.strip():
-            logger.error("_chamar_groq_json: Groq retornou resposta vazia")
-            return None
-        resposta_limpa = re.sub(r'```(?:json)?\s*|\s*```', '', resposta_raw).strip()
-        return json.loads(resposta_limpa)
+        match = re.search(r'\{[\s\S]*\}', resposta_raw)
+        if match:
+            return json.loads(match.group(0))
+        logger.error("_chamar_groq_json: nenhum JSON encontrado na resposta")
+        return None
     except Exception as e:
         logger.error(f"Groq inline error: {e}")
         return None
@@ -1396,13 +1396,18 @@ Responda em JSON:
             temperature=0.7,
             max_tokens=1000
         )
-        raw = completion.choices[0].message.content
+        raw = completion.choices[0].message.content or ""
         print(f"[IMPREVISTO] RAW GROQ: '{raw}'")
         import re, json
-        limpo = re.sub(r'```(?:json)?\s*|\s*```', '', raw or '').strip()
-        print(f"[IMPREVISTO] LIMPO: '{limpo}'")
-        orientacoes = json.loads(limpo) if limpo else None
-        print(f"[IMPREVISTO] PARSED: {orientacoes}")
+        match = re.search(r'\{[\s\S]*\}', raw)
+        if match:
+            json_str = match.group(0)
+            print(f"[IMPREVISTO] JSON EXTRAIDO: '{json_str}'")
+            orientacoes = json.loads(json_str)
+            print(f"[IMPREVISTO] PARSED: {orientacoes}")
+        else:
+            print(f"[IMPREVISTO] NENHUM JSON ENCONTRADO")
+            orientacoes = None
     except Exception as e:
         print(f"[IMPREVISTO] ERRO: {e}")
         orientacoes = None
