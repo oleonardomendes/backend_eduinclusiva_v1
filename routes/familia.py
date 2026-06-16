@@ -4,6 +4,7 @@ Portal da Família — endpoints para responsáveis acompanharem e estimularem
 seus filhos com necessidades especiais em casa.
 """
 import os
+import re
 import json
 import traceback
 import logging
@@ -424,6 +425,7 @@ def _tendencia(registros: list) -> str:
 def _chamar_groq_json(prompt: str) -> dict | None:
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
+        logger.error("_chamar_groq_json: GROQ_API_KEY não configurada")
         return None
     try:
         client = Groq(api_key=api_key)
@@ -431,9 +433,15 @@ def _chamar_groq_json(prompt: str) -> dict | None:
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
+            max_tokens=1000,
         )
-        raw = _limpar_json_resposta(response.choices[0].message.content)
-        return json.loads(raw)
+        resposta_raw = response.choices[0].message.content or ""
+        print(f"Resposta RAW do Groq: '{resposta_raw}'")
+        if not resposta_raw.strip():
+            logger.error("_chamar_groq_json: Groq retornou resposta vazia")
+            return None
+        resposta_limpa = re.sub(r'```(?:json)?\s*|\s*```', '', resposta_raw).strip()
+        return json.loads(resposta_limpa)
     except Exception as e:
         logger.error(f"Groq inline error: {e}")
         return None
