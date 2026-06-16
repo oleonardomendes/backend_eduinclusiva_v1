@@ -809,6 +809,59 @@ class AvaliacaoFisioterapia(SQLModel, table=True):
 
 
 # =========================================================
+# 🗓️ Rotina Visual (portal da família)
+# =========================================================
+class RotinaSemanal(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    filho_id: int = Field(foreign_key="filhopublico.id", index=True)
+    responsavel_id: int = Field(foreign_key="usuario.id", index=True)
+    semana_inicio: date
+    semana_fim: date
+    ativa: bool = Field(default=True)
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+    atualizado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ItemRotina(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    rotina_id: int = Field(foreign_key="rotinasemanal.id", index=True)
+    dia_semana: int          # 0=Segunda … 6=Domingo
+    periodo: str             # "manha", "tarde", "noite"
+    ordem: int
+    titulo: str
+    descricao: Optional[str] = None
+    icone: Optional[str] = None
+    duracao_minutos: Optional[int] = None
+    concluido_hoje: bool = Field(default=False)
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+class MudancaRotina(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    filho_id: int = Field(foreign_key="filhopublico.id", index=True)
+    responsavel_id: int = Field(foreign_key="usuario.id", index=True)
+    titulo: str
+    descricao: Optional[str] = None
+    data_inicio: date
+    data_fim: Optional[date] = None
+    tipo: str                # "viagem", "feriado", "doenca", "evento", "mudanca_escola", "outro"
+    plano_preparacao: Optional[str] = None   # JSON gerado pela IA
+    status: str = Field(default="planejado") # "planejado", "em_andamento", "concluido"
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ImprevistoDia(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    filho_id: int = Field(foreign_key="filhopublico.id", index=True)
+    responsavel_id: int = Field(foreign_key="usuario.id", index=True)
+    data: date
+    tipo: str                # "doenca", "cancelamento_sessao", "crise", "recusa_alimentar", "dificuldade_sono", "outro"
+    descricao: str
+    orientacoes_ia: Optional[str] = None     # JSON gerado pela IA
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =========================================================
 # 🧠 Utilidades
 # =========================================================
 def parse_json_field(data: str):

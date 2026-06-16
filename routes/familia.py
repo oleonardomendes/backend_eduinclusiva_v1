@@ -25,6 +25,10 @@ from app.models import (
     RegistroPlanoFamilia,
     VinculoEspecialistaFamilia,
     Usuario as UsuarioModel,
+    RotinaSemanal,
+    ItemRotina,
+    MudancaRotina,
+    ImprevistoDia,
 )
 from routes.auth import get_current_user, Usuario
 from services.ai_service import (
@@ -1088,3 +1092,341 @@ def meus_especialistas(
             "aceito_em": v.aceito_em,
         })
     return result
+
+
+# =========================================================
+# Schemas — Rotina Visual
+# =========================================================
+
+class ItemRotinaCreate(BaseModel):
+    dia_semana: int
+    periodo: str
+    ordem: int
+    titulo: str
+    descricao: Optional[str] = None
+    icone: Optional[str] = None
+    duracao_minutos: Optional[int] = None
+
+
+class RotinaCreate(BaseModel):
+    semana_inicio: date
+    semana_fim: date
+    itens: list[ItemRotinaCreate]
+
+
+class MudancaCreate(BaseModel):
+    titulo: str
+    descricao: Optional[str] = None
+    data_inicio: date
+    data_fim: Optional[date] = None
+    tipo: str
+
+
+class ImprevistoCreate(BaseModel):
+    tipo: str
+    descricao: str
+    data: date
+
+
+_DIA_LABEL = {
+    0: "Segunda-feira",
+    1: "Terça-feira",
+    2: "Quarta-feira",
+    3: "Quinta-feira",
+    4: "Sexta-feira",
+    5: "Sábado",
+    6: "Domingo",
+}
+
+
+# =========================================================
+# POST /filhos/{filho_id}/rotina/ — criar/substituir rotina
+# =========================================================
+
+@router.post("/filhos/{filho_id}/rotina/", status_code=201)
+def criar_rotina(
+    filho_id: int,
+    body: RotinaCreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_familia(current_user)
+    filho = session.get(FilhoPublico, filho_id)
+    if not filho:
+        raise HTTPException(status_code=404, detail="Filho não encontrado.")
+    _verificar_dono_filho(filho, current_user)
+
+    # Desativa rotinas ativas anteriores
+    rotinas_ativas = session.exec(
+        select(RotinaSemanal).where(
+            RotinaSemanal.filho_id == filho_id,
+            RotinaSemanal.ativa == True,  # noqa: E712
+        )
+    ).all()
+    for r in rotinas_ativas:
+        r.ativa = False
+        session.add(r)
+
+    rotina = RotinaSemanal(
+        filho_id=filho_id,
+        responsavel_id=current_user.id,
+        semana_inicio=body.semana_inicio,
+        semana_fim=body.semana_fim,
+    )
+    session.add(rotina)
+    session.flush()  # obtém rotina.id antes do commit
+
+    itens = []
+    for item_data in body.itens:
+        item = ItemRotina(
+            rotina_id=rotina.id,
+            dia_semana=item_data.dia_semana,
+            periodo=item_data.periodo,
+            ordem=item_data.ordem,
+            titulo=item_data.titulo,
+            descricao=item_data.descricao,
+            icone=item_data.icone,
+            duracao_minutos=item_data.duracao_minutos,
+        )
+        session.add(item)
+        itens.append(item)
+
+    session.commit()
+    session.refresh(rotina)
+    for item in itens:
+        session.refresh(item)
+
+    return {"rotina": rotina, "itens": itens}
+
+
+# =========================================================
+# GET /filhos/{filho_id}/rotina/ — rotina ativa organizada
+# =========================================================
+
+@router.get("/filhos/{filho_id}/rotina/")
+def buscar_rotina(
+    filho_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_familia(current_user)
+    filho = session.get(FilhoPublico, filho_id)
+    if not filho:
+        raise HTTPException(status_code=404, detail="Filho não encontrado.")
+    _verificar_dono_filho(filho, current_user)
+
+    rotina = session.exec(
+        select(RotinaSemanal).where(
+            RotinaSemanal.filho_id == filho_id,
+            RotinaSemanal.ativa == True,  # noqa: E712
+        )
+    ).first()
+
+    if not rotina:
+        raise HTTPException(status_code=404, detail="Nenhuma rotina ativa encontrada.")
+
+    itens = session.exec(
+        select(ItemRotina).where(ItemRotina.rotina_id == rotina.id)
+    ).all()
+
+    dias: dict[str, dict] = {
+        str(d): {"label": _DIA_LABEL[d], "manha": [], "tarde": [], "noite": []}
+        for d in range(7)
+    }
+
+    for item in sorted(itens, key=lambda x: (x.dia_semana, x.ordem)):
+        dia_key = str(item.dia_semana)
+        if item.periodo in ("manha", "tarde", "noite"):
+            dias[dia_key][item.periodo].append(item.model_dump())
+
+    return {
+        "rotina_id": rotina.id,
+        "semana_inicio": str(rotina.semana_inicio),
+        "semana_fim": str(rotina.semana_fim),
+        "dias": dias,
+    }
+
+
+# =========================================================
+# POST /filhos/{filho_id}/mudancas/ — registrar mudança + plano IA
+# =========================================================
+
+@router.post("/filhos/{filho_id}/mudancas/", status_code=201)
+def criar_mudanca(
+    filho_id: int,
+    body: MudancaCreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_familia(current_user)
+    filho = session.get(FilhoPublico, filho_id)
+    if not filho:
+        raise HTTPException(status_code=404, detail="Filho não encontrado.")
+    _verificar_dono_filho(filho, current_user)
+
+    prompt = f"""Uma família com uma criança de {filho.idade or "?"} anos com {filho.condicao or "necessidade especial"} ({filho.grau_necessidade or "grau não informado"}) vai ter a seguinte mudança na rotina:
+
+Mudança: {body.titulo}
+Descrição: {body.descricao or "Não informada"}
+Data: {body.data_inicio}
+Tipo: {body.tipo}
+
+Gere um plano de preparação gradual de 5 a 7 dias para preparar a criança para essa mudança.
+Cada dia deve ter 1-2 orientações práticas simples para os pais implementarem.
+
+Considere que crianças com {filho.condicao or "necessidade especial"} precisam de antecipação, rotina visual e preparação gradual.
+
+Responda em JSON:
+{{
+    "dias_preparacao": [
+        {{
+            "dias_antes": 7,
+            "titulo": "string",
+            "orientacoes": ["string", "string"]
+        }}
+    ],
+    "dicas_gerais": ["string"],
+    "o_que_levar": ["string"]
+}}"""
+
+    plano_ia = _chamar_groq_json(prompt)
+    plano_json = json.dumps(plano_ia, ensure_ascii=False) if plano_ia else None
+
+    mudanca = MudancaRotina(
+        filho_id=filho_id,
+        responsavel_id=current_user.id,
+        titulo=body.titulo,
+        descricao=body.descricao,
+        data_inicio=body.data_inicio,
+        data_fim=body.data_fim,
+        tipo=body.tipo,
+        plano_preparacao=plano_json,
+    )
+    session.add(mudanca)
+    session.commit()
+    session.refresh(mudanca)
+
+    return {
+        **mudanca.model_dump(),
+        "plano_preparacao": plano_ia,
+    }
+
+
+# =========================================================
+# GET /filhos/{filho_id}/mudancas/ — listar mudanças
+# =========================================================
+
+@router.get("/filhos/{filho_id}/mudancas/")
+def listar_mudancas(
+    filho_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_familia(current_user)
+    filho = session.get(FilhoPublico, filho_id)
+    if not filho:
+        raise HTTPException(status_code=404, detail="Filho não encontrado.")
+    _verificar_dono_filho(filho, current_user)
+
+    mudancas = session.exec(
+        select(MudancaRotina)
+        .where(MudancaRotina.filho_id == filho_id)
+        .order_by(MudancaRotina.data_inicio.desc())  # type: ignore[attr-defined]
+    ).all()
+
+    return [
+        {
+            **m.model_dump(),
+            "plano_preparacao": json.loads(m.plano_preparacao) if m.plano_preparacao else None,
+        }
+        for m in mudancas
+    ]
+
+
+# =========================================================
+# POST /filhos/{filho_id}/imprevistos/ — registrar imprevisto + orientações IA
+# =========================================================
+
+@router.post("/filhos/{filho_id}/imprevistos/", status_code=201)
+def criar_imprevisto(
+    filho_id: int,
+    body: ImprevistoCreate,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_familia(current_user)
+    filho = session.get(FilhoPublico, filho_id)
+    if not filho:
+        raise HTTPException(status_code=404, detail="Filho não encontrado.")
+    _verificar_dono_filho(filho, current_user)
+
+    prompt = f"""Um pai registrou o seguinte imprevisto com seu filho de {filho.idade or "?"} anos com {filho.condicao or "necessidade especial"} ({filho.grau_necessidade or "grau não informado"}):
+
+Tipo: {body.tipo}
+Descrição: {body.descricao}
+
+Gere orientações práticas e acolhedoras para o pai lidar com essa situação em casa hoje.
+Considere o perfil da criança e seja específico.
+
+Responda em JSON:
+{{
+    "orientacoes_imediatas": ["string"],
+    "o_que_evitar": ["string"],
+    "quando_buscar_ajuda": "string",
+    "mensagem_encorajamento": "string"
+}}"""
+
+    orientacoes_ia = _chamar_groq_json(prompt)
+    orientacoes_json = json.dumps(orientacoes_ia, ensure_ascii=False) if orientacoes_ia else None
+
+    imprevisto = ImprevistoDia(
+        filho_id=filho_id,
+        responsavel_id=current_user.id,
+        data=body.data,
+        tipo=body.tipo,
+        descricao=body.descricao,
+        orientacoes_ia=orientacoes_json,
+    )
+    session.add(imprevisto)
+    session.commit()
+    session.refresh(imprevisto)
+
+    return {
+        **imprevisto.model_dump(),
+        "orientacoes_ia": orientacoes_ia,
+    }
+
+
+# =========================================================
+# GET /filhos/{filho_id}/imprevistos/ — últimos 30 dias
+# =========================================================
+
+@router.get("/filhos/{filho_id}/imprevistos/")
+def listar_imprevistos(
+    filho_id: int,
+    session: Session = Depends(get_session),
+    current_user: Usuario = Depends(get_current_user),
+):
+    _verificar_familia(current_user)
+    filho = session.get(FilhoPublico, filho_id)
+    if not filho:
+        raise HTTPException(status_code=404, detail="Filho não encontrado.")
+    _verificar_dono_filho(filho, current_user)
+
+    corte = date.today() - timedelta(days=30)
+    imprevistos = session.exec(
+        select(ImprevistoDia)
+        .where(
+            ImprevistoDia.filho_id == filho_id,
+            ImprevistoDia.data >= corte,
+        )
+        .order_by(ImprevistoDia.data.desc())  # type: ignore[attr-defined]
+    ).all()
+
+    return [
+        {
+            **i.model_dump(),
+            "orientacoes_ia": json.loads(i.orientacoes_ia) if i.orientacoes_ia else None,
+        }
+        for i in imprevistos
+    ]
