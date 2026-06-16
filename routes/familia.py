@@ -1370,6 +1370,7 @@ def criar_imprevisto(
 
     print(f"Gerando orientações para imprevisto: {body.tipo}")
     print(f"Filho: {filho.nome}, {filho.condicao}")
+    print(f"[IMPREVISTO] Iniciando chamada Groq para {body.tipo}")
 
     prompt = f"""Um pai registrou o seguinte imprevisto com seu filho de {filho.idade or "?"} anos com {filho.condicao or "necessidade especial"} ({filho.grau_necessidade or "grau não informado"}):
 
@@ -1386,9 +1387,27 @@ Responda em JSON:
     "mensagem_encorajamento": "string"
 }}"""
 
-    orientacoes_ia = _chamar_groq_json(prompt)
-    print(f"orientacoes_ia retornado pelo Groq: {orientacoes_ia}")
-    orientacoes_json = json.dumps(orientacoes_ia, ensure_ascii=False) if orientacoes_ia else None
+    try:
+        from groq import Groq as GroqClient
+        client_debug = GroqClient(api_key=os.getenv("GROQ_API_KEY"))
+        completion = client_debug.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=1000
+        )
+        raw = completion.choices[0].message.content
+        print(f"[IMPREVISTO] RAW GROQ: '{raw}'")
+        import re, json
+        limpo = re.sub(r'```(?:json)?\s*|\s*```', '', raw or '').strip()
+        print(f"[IMPREVISTO] LIMPO: '{limpo}'")
+        orientacoes = json.loads(limpo) if limpo else None
+        print(f"[IMPREVISTO] PARSED: {orientacoes}")
+    except Exception as e:
+        print(f"[IMPREVISTO] ERRO: {e}")
+        orientacoes = None
+
+    orientacoes_json = json.dumps(orientacoes, ensure_ascii=False) if orientacoes else None
 
     imprevisto = ImprevistoDia(
         filho_id=filho_id,
@@ -1404,7 +1423,7 @@ Responda em JSON:
 
     return {
         **imprevisto.model_dump(),
-        "orientacoes_ia": orientacoes_ia,
+        "orientacoes_ia": orientacoes,
     }
 
 
